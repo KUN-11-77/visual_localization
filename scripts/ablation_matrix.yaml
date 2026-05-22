@@ -1,0 +1,10 @@
+experiments:
+  # Baselines (required)
+  - config: configs/baseline_a.yaml
+    id: BL-A
+  - config: configs/baseline_b.yaml
+    id: BL-B
+
+  # Full new pipeline
+  - id: FULL-NEW
+    config: configs/method_full.yaml

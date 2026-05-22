@@ -1,0 +1,47 @@
+name: baseline_a_netvlad_sift_nn
+description: "NetVLAD + SIFT + nearest-neighbor matching"
+
+retrieval:
+  method: NetVLADRetrieval
+  top_k: 10
+  params:
+    pca_dim: 4096
+    device: cuda
+
+detector:
+  method: SIFTDetector
+  params:
+    max_keypoints: 5000
+
+matcher:
+  method: NNMatcher
+  params:
+    cross_check: true
+    use_ratio_test: false
+    ratio_test: 0.9
+
+dataset:
+  name: cambridge
+  scene: KingsCollege
+  root: data/cambridge/KingsCollege
+  nvm_model: reconstruction.nvm
+  # NVM reconstruction resolution (if NVM was exported from COLMAP 1024px model)
+  # nvm_width: 1024
+  # nvm_height: 576
+  query_list: dataset_test.txt
+  db_list: dataset_train.txt
+  fx: 1670
+  fy: 1670
+  cx: 960
+  cy: 540
+
+pose_solver:
+  method: pnp_ransac
+  ransac_thresh: 12.0
+  min_inliers: 12
+  confidence: 0.9999
+
+output:
+  results_dir: outputs/results/baseline_a
+  save_retrieved: true
+  timing: true
