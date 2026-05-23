@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visual Localization — Results Showcase</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --primary: #2563eb;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --warning: #f59e0b;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --shadow-lg: 0 4px 16px rgba(0,0,0,.08);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+  }
+
+  /* Navigation */
+  .nav {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 14px 32px; display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow);
+  }
+  .nav h1 { font-size: 18px; font-weight: 600; }
+  .nav h1 span { color: var(--primary); }
+  .nav-links a {
+    color: var(--text-muted); text-decoration: none;
+    padding: 8px 16px; border-radius: 6px; font-size: 14px; transition: all .15s;
+  }
+  .nav-links a:hover { background: var(--bg); color: var(--text); }
+  .nav-links a.active { background: var(--primary); color: #fff; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+
+  /* Hero */
+  .hero {
+    text-align: center; padding: 48px 24px;
+    background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #6366f1 100%);
+    color: #fff; border-radius: var(--radius); margin-bottom: 32px;
+  }
+  .hero h1 { font-size: 32px; font-weight: 800; margin-bottom: 12px; letter-spacing: -.5px; }
+  .hero p { font-size: 16px; opacity: .85; max-width: 700px; margin: 0 auto; line-height: 1.6; }
+  .hero .badges { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+  .hero .badge {
+    font-size: 12px; font-weight: 600; padding: 6px 14px;
+    border-radius: 20px; background: rgba(255,255,255,.15);
+    backdrop-filter: blur(4px);
+  }
+
+  /* Stats Row */
+  .stats-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px; margin-bottom: 32px;
+  }
+  .stat-card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 20px 24px; box-shadow: var(--shadow);
+    border-left: 4px solid var(--primary);
+  }
+  .stat-card .label { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; }
+  .stat-card .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Section */
+  .section {
+    background: var(--card); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 28px; margin-bottom: 24px;
+  }
+  .section h2 {
+    font-size: 20px; font-weight: 700; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section .desc { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  table th {
+    background: #f1f5f9; font-weight: 700; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .5px;
+    color: var(--text-muted); padding: 12px; text-align: left;
+    border-bottom: 2px solid var(--border);
+  }
+  table td {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+  }
+  table tbody tr:hover td { background: #f8fafc; }
+  table tbody tr.best td { background: #f0fdf4; }
+
+  .recall-bar {
+    display: inline-block; height: 8px; border-radius: 4px;
+    background: var(--primary); min-width: 2px; vertical-align: middle; margin-right: 6px;
+  }
+  .recall-bar.low { background: var(--warning); }
+  .recall-bar.high { background: var(--success); }
+
+  /* Chart containers */
+  .chart-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 24px; margin-top: 20px;
+  }
+  @media (max-width: 800px) { .chart-grid { grid-template-columns: 1fr; } }
+  .chart-box {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .chart-box h3 { font-size: 14px; color: var(--text-muted); margin-bottom: 12px; text-align: center; }
+  .chart-box canvas { max-height: 300px; }
+
+  /* Pipeline Diagram */
+  .pipeline {
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px; flex-wrap: wrap; padding: 20px 0;
+  }
+  .pipe-step {
+    background: #f1f5f9; border: 2px solid var(--border);
+    border-radius: var(--radius); padding: 14px 20px;
+    text-align: center; min-width: 100px;
+  }
+  .pipe-step .name { font-weight: 700; font-size: 13px; }
+  .pipe-step .method { font-size: 11px; color: var(--primary); margin-top: 2px; }
+  .pipe-arrow { font-size: 20px; color: var(--text-muted); }
+
+  /* AR Gallery */
+  .gallery {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px; margin-top: 16px;
+  }
+  .gallery-item {
+    border-radius: 8px; overflow: hidden; box-shadow: var(--shadow);
+    background: var(--card); border: 1px solid var(--border);
+  }
+  .gallery-item img { width: 100%; height: 160px; object-fit: cover; display: block; }
+  .gallery-item .caption {
+    font-size: 11px; padding: 8px 10px; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Method cards */
+  .method-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px; margin-top: 16px;
+  }
+  .method-card {
+    background: #f8fafc; border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px;
+  }
+  .method-card h4 { font-size: 15px; margin-bottom: 6px; }
+  .method-card .tag {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 4px; margin-right: 4px; margin-bottom: 4px;
+  }
+  .tag-retrieval { background: #dbeafe; color: #1e40af; }
+  .tag-detector { background: #fef3c7; color: #92400e; }
+  .tag-matcher { background: #dcfce7; color: #166534; }
+
+  /* Footer */
+  .footer {
+    text-align: center; padding: 32px; color: var(--text-muted);
+    font-size: 13px; border-top: 1px solid var(--border); margin-top: 40px;
+  }
+  .footer a { color: var(--primary); text-decoration: none; }
+
+  /* Loading */
+  .loading { text-align: center; padding: 60px; color: var(--text-muted); }
+  .loading .spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border);
+    border-top-color: var(--primary); border-radius: 50%;
+    animation: spin .7s linear infinite; margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Print */
+  @media print {
+    .nav { position: static; }
+    body { background: white; }
+    .section { break-inside: avoid; box-shadow: none; border: 1px solid #ddd; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <h1><span>Visual</span> Localization — Results Showcase</h1>
+  <div class="nav-links">
+    <a href="/">Run Experiment</a>
+    <a href="/showcase" class="active">Showcase</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>Hierarchical Visual Localization</h1>
+    <p>
+      An extended implementation based on OpenXRLab XRLocalization, integrating multiple
+      image retrieval, feature detection, and feature matching methods. Evaluated on
+      Cambridge Landmarks and 7-Scenes datasets.
+    </p>
+    <div class="badges">
+      <span class="badge">3 Retrieval Methods</span>
+      <span class="badge">3 Detectors</span>
+      <span class="badge">3 Matchers</span>
+      <span class="badge">2 Datasets</span>
+      <span class="badge">8 Experiments</span>
+    </div>
+  </div>
+
+  <!-- Stats Row -->
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card"><div class="label">Total Experiments</div><div class="value" id="statTotal">-</div></div>
+    <div class="stat-card" style="border-left-color: var(--success)"><div class="label">Best (0.25m, 2°)</div><div class="value" id="statBest">-</div><div class="sub">Cambridge Landmarks</div></div>
+    <div class="stat-card" style="border-left-color: var(--warning)"><div class="label">Best (0.5m, 5°)</div><div class="value" id="statMid">-</div><div class="sub">Cambridge Landmarks</div></div>
+    <div class="stat-card" style="border-left-color: #6366f1"><div class="label">Datasets Tested</div><div class="value" id="statDS">-</div></div>
+  </div>
+
+  <!-- Pipeline Architecture -->
+  <div class="section">
+    <h2>Pipeline Architecture</h2>
+    <div class="pipeline">
+      <div class="pipe-step"><div class="name">Query Image</div><div class="method">Input</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="name">Image Retrieval</div><div class="method">NetVLAD / EigenPlaces / CricaVPR</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="name">Feature Detection</div><div class="method">SIFT / SuperPoint / ALIKED</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="name">Feature Matching</div><div class="method">NN / SuperGlue / LightGlue</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="name">PnP RANSAC</div><div class="method">Pose Estimation</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="name">6-DoF Pose</div><div class="method">Output</div></div>
+    </div>
+  </div>
+
+  <!-- Cambridge Results -->
+  <div class="section">
+    <h2>Cambridge Landmarks — KingsCollege</h2>
+    <p class="desc">343 query images, evaluated at three recall thresholds. Configs ordered by (0.25m, 2°) recall.</p>
+    <div class="chart-grid">
+      <div class="chart-box"><h3>Recall Comparison</h3><canvas id="chartCambridge"></canvas></div>
+      <div class="chart-box"><h3>Per-Stage Timing</h3><canvas id="chartTiming"></canvas></div>
+    </div>
+    <div class="table-wrap" style="margin-top:20px">
+      <table id="tableCambridge">
+        <thead>
+          <tr><th>Experiment</th><th>Retrieval</th><th>Detector</th><th>Matcher</th><th>(0.25m, 2°)</th><th>(0.5m, 5°)</th><th>(5.0m, 10°)</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 7Scenes Results -->
+  <div class="section">
+    <h2>7-Scenes — Stairs</h2>
+    <p class="desc">1000 query images with RGB-D depth maps for 2D-3D correspondence.</p>
+    <div class="chart-grid">
+      <div class="chart-box"><h3>Recall Comparison</h3><canvas id="chart7Scenes"></canvas></div>
+      <div class="chart-box" style="display:flex;align-items:center;justify-content:center">
+        <div style="text-align:center;padding:20px">
+          <div style="font-size:48px;margin-bottom:8px">🏗️</div>
+          <p style="color:var(--text-muted);font-size:14px">
+            7-Scenes uses depth-based 2D-3D unprojection<br>
+            instead of COLMAP/NVM sparse reconstruction<br><br>
+            <strong>Best: NetVLAD + ALIKED + LightGlue</strong><br>
+            (0.25m, 2°): 30.6% | (0.5m, 5°): 84.7%
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-top:20px">
+      <table id="table7Scenes">
+        <thead>
+          <tr><th>Experiment</th><th>Retrieval</th><th>Detector</th><th>Matcher</th><th>(0.25m, 2°)</th><th>(0.5m, 5°)</th><th>(5.0m, 10°)</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Integrated Methods -->
+  <div class="section">
+    <h2>Integrated Methods</h2>
+    <p class="desc">Methods newly integrated into the XRLocalization pipeline (not present in upstream HLoc or XRLocalization).</p>
+    <div class="method-grid">
+      <div class="method-card">
+        <h4>EigenPlaces <span class="tag tag-retrieval">Retrieval</span></h4>
+        <p style="font-size:13px;color:var(--text-muted);margin-top:4px">
+          Unsupervised VPR using ResNet-50 + GeM pooling. Trained on GSV-Cities.
+          More viewpoint-invariant than NetVLAD for cross-scene generalization.
+        </p>
+      </div>
+      <div class="method-card">
+        <h4>CricaVPR <span class="tag tag-retrieval">Retrieval</span></h4>
+        <p style="font-size:13px;color:var(--text-muted);margin-top:4px">
+          Cross-image relational contrastive VPR using DINOv2 ViT-B backbone.
+          Leverages cross-batch relationships for more discriminative global descriptors.
+        </p>
+      </div>
+      <div class="method-card">
+        <h4>ALIKED <span class="tag tag-detector">Detector</span></h4>
+        <p style="font-size:13px;color:var(--text-muted);margin-top:4px">
+          A Lighter and Improved Keypoint Extraction with Descriptors.
+          Neural keypoint detector with deformable convolution, faster than SuperPoint
+          while maintaining comparable repeatability.
+        </p>
+      </div>
+      <div class="method-card">
+        <h4>LightGlue <span class="tag tag-matcher">Matcher</span></h4>
+        <p style="font-size:13px;color:var(--text-muted);margin-top:4px">
+          Lightweight transformer-based feature matcher. Adaptive depth and width
+          based on input difficulty — faster than SuperGlue on easy pairs
+          while matching its accuracy on hard pairs.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- AR Demo Gallery -->
+  <div class="section" id="arSection">
+    <h2>AR Demo Gallery</h2>
+    <p class="desc">
+      Green wireframe cube rendered onto query images using estimated camera poses.
+      Green = correctly localized (t_err &lt; 0.25m, r_err &lt; 2°), Red = failed.
+      <br>Spatial jitter of the cube across frames demonstrates localization accuracy.
+    </p>
+    <div class="gallery" id="arGallery">
+      <p style="color:var(--text-muted);grid-column:1/-1;text-align:center;padding:40px">
+        Run an AR demo from the <a href="/">Experiment Runner</a> to see results here.
+      </p>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <p>
+      Based on <a href="https://github.com/openxrlab/xrlocalization" target="_blank">OpenXRLab XRLocalization</a>
+      and <a href="https://github.com/cvg/Hierarchical-Localization" target="_blank">HLoc</a>.
+      Visual Localization Course Project, 2026.
+    </p>
+  </div>
+
+</div>
+
+<script>
+// ── Fetch & Display Data ───────────────────────────────────────────
+async function init() {
+  const resp = await fetch('/api/results');
+  const results = await resp.json();
+  if (!results || results.length === 0) {
+    document.getElementById('arGallery').innerHTML =
+      '<p style="color:var(--text-muted);grid-column:1/-1;text-align:center;padding:40px">No results yet. Run experiments first!</p>';
+    return;
+  }
+  renderStats(results);
+  renderCambridge(results);
+  render7Scenes(results);
+  renderAR(results);
+}
+
+// ── Parse experiment method from name ──────────────────────────────
+function parseMethods(r) {
+  const name = r.name || '';
+  // Known experiment naming patterns
+  const mapping = {
+    'baseline_a': {ret:'NetVLAD', det:'SIFT', mat:'NN'},
+    'baseline_b': {ret:'NetVLAD', det:'SuperPoint', mat:'SuperGlue'},
+    'exp_r': {ret:'EigenPlaces', det:'SuperPoint', mat:'SuperGlue'},
+    'exp_m': {ret:'NetVLAD', det:'ALIKED', mat:'LightGlue'},
+    'exp_full': {ret:'EigenPlaces', det:'ALIKED', mat:'LightGlue'},
+    'exp_crica': {ret:'CricaVPR', det:'ALIKED', mat:'LightGlue'},
+    '7s_stairs': {ret:'NetVLAD', det:'ALIKED', mat:'LightGlue'},
+  };
+  for (const [key, methods] of Object.entries(mapping)) {
+    if (name.startsWith(key)) return methods;
+  }
+  // Try to infer from name
+  let ret = '?', det = '?', mat = '?';
+  if (name.includes('netvlad')) ret = 'NetVLAD';
+  else if (name.includes('eigenplaces')) ret = 'EigenPlaces';
+  else if (name.includes('crica')) ret = 'CricaVPR';
+  if (name.includes('sift')) det = 'SIFT';
+  else if (name.includes('superpoint')) det = 'SuperPoint';
+  else if (name.includes('aliked')) det = 'ALIKED';
+  if (name.includes('nn')) mat = 'NN';
+  else if (name.includes('superglue')) mat = 'SuperGlue';
+  else if (name.includes('lightglue')) mat = 'LightGlue';
+  return {ret, det, mat};
+}
+
+// ── Group and pick best per experiment ─────────────────────────────
+function bestPerExperiment(results) {
+  const groups = {};
+  for (const r of results) {
+    const m = r.metrics || {};
+    const key = r.name;
+    const recall = m['(0.25m, 2deg)'] || 0;
+    if (!groups[key] || recall > (groups[key].metrics['(0.25m, 2deg)'] || 0)) {
+      groups[key] = r;
+    }
+  }
+  return Object.values(groups);
+}
+
+// ── Stats ──────────────────────────────────────────────────────────
+function renderStats(results) {
+  const best = bestPerExperiment(results);
+  let best025 = 0, best05 = 0;
+  const datasets = new Set();
+  for (const r of best) {
+    const m = r.metrics || {};
+    const d = m['dataset'] || '?';
+    datasets.add(d);
+    const r025 = m['(0.25m, 2deg)'] || 0;
+    const r05 = m['(0.5m, 5deg)'] || 0;
+    if (r025 > best025) best025 = r025;
+    if (r05 > best05) best05 = r05;
+  }
+  document.getElementById('statTotal').textContent = results.length;
+  document.getElementById('statBest').textContent = (best025*100).toFixed(1) + '%';
+  document.getElementById('statMid').textContent = (best05*100).toFixed(1) + '%';
+  document.getElementById('statDS').textContent = datasets.size;
+}
+
+// ── Cambridge Results ──────────────────────────────────────────────
+function renderCambridge(results) {
+  const cambridgeOrder = [
+    'baseline_a', 'baseline_b', 'exp_r', 'exp_m', 'exp_full', 'exp_crica'
+  ];
+  let cambridge = [];
+  for (const key of cambridgeOrder) {
+    const matches = results.filter(r => r.name && r.name.startsWith(key));
+    if (matches.length > 0) {
+      // Pick best run
+      let best = matches[0];
+      for (const m of matches) {
+        if ((m.metrics?.['(0.25m, 2deg)'] || 0) > (best.metrics?.['(0.25m, 2deg)'] || 0)) {
+          best = m;
+        }
+      }
+      cambridge.push(best);
+    }
+  }
+
+  const labels = [];
+  const data025 = [], data05 = [], data10 = [];
+
+  let tbody = '';
+  cambridge.forEach((r, i) => {
+    const m = r.metrics || {};
+    const methods = parseMethods(r);
+    const r025 = m['(0.25m, 2deg)'] || 0;
+    const r05 = m['(0.5m, 5deg)'] || 0;
+    const r10 = m['(5.0m, 10deg)'] || 0;
+    labels.push(r.name);
+    data025.push(r025 * 100);
+    data05.push(r05 * 100);
+    data10.push(r10 * 100);
+
+    const isBest = r025 >= Math.max(...data025);
+    const bar025 = `<span class="recall-bar ${r025>0.5?'high':(r025>0.2?'low':'')}" style="width:${Math.max(r025*200, 2)}px"></span>`;
+
+    tbody += `<tr${isBest?' class="best"':''}>
+      <td><strong>${r.name}</strong></td>
+      <td>${methods.ret}</td><td>${methods.det}</td><td>${methods.mat}</td>
+      <td>${bar025}${(r025*100).toFixed(2)}%</td>
+      <td>${(r05*100).toFixed(2)}%</td>
+      <td>${(r10*100).toFixed(2)}%</td>
+    </tr>`;
+  });
+  document.querySelector('#tableCambridge tbody').innerHTML = tbody;
+
+  // Chart
+  new Chart(document.getElementById('chartCambridge'), {
+    type: 'bar',
+    data: {
+      labels: labels.map(l => l.length > 20 ? l.slice(0,20)+'…' : l),
+      datasets: [
+        { label: '(0.25m, 2°)', data: data025, backgroundColor: '#3b82f6', borderRadius: 4 },
+        { label: '(0.5m, 5°)', data: data05, backgroundColor: '#22c55e', borderRadius: 4 },
+        { label: '(5.0m, 10°)', data: data10, backgroundColor: '#a78bfa', borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 16, font: {size:11} }} },
+      scales: {
+        y: { beginAtZero: true, max: 100, ticks: { callback: v => v+'%' }, grid: { color: '#f1f5f9' } },
+        x: { grid: { display: false }, ticks: { font: {size:10} } }
+      }
+    }
+  });
+
+  // Timing chart (from first result with timing data)
+  const withTiming = cambridge.find(r => r.timing && Object.keys(r.timing).length > 0);
+  if (withTiming && withTiming.timing) {
+    const tKeys = [], tMeans = [];
+    for (const [k, v] of Object.entries(withTiming.timing)) {
+      if (typeof v === 'object' && v.mean_ms !== undefined) {
+        tKeys.push(k);
+        tMeans.push(v.mean_ms);
+      }
+    }
+    new Chart(document.getElementById('chartTiming'), {
+      type: 'bar',
+      data: {
+        labels: tKeys,
+        datasets: [{ label: 'Mean (ms)', data: tMeans, backgroundColor: ['#6366f1','#3b82f6','#22c55e','#f59e0b'], borderRadius: 4 }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#f1f5f9' }, ticks: { callback: v => v+'ms' } },
+          y: { grid: { display: false } }
+        }
+      }
+    });
+  } else {
+    document.getElementById('chartTiming').parentElement.innerHTML =
+      '<h3>Per-Stage Timing</h3><p style="text-align:center;color:var(--text-muted);padding:40px">Timing data not available. Use updated pipeline with timing enabled.</p>';
+  }
+}
+
+// ── 7Scenes Results ────────────────────────────────────────────────
+function render7Scenes(results) {
+  const s7 = results.filter(r => r.name && r.name.startsWith('7s_'));
+  let tbody = '';
+  const labels = [], data025 = [], data05 = [], data10 = [];
+
+  s7.forEach(r => {
+    const m = r.metrics || {};
+    const methods = parseMethods(r);
+    const r025 = m['(0.25m, 2deg)'] || 0;
+    const r05 = m['(0.5m, 5deg)'] || 0;
+    const r10 = m['(5.0m, 10deg)'] || 0;
+    labels.push(r.name);
+    data025.push(r025 * 100);
+    data05.push(r05 * 100);
+    data10.push(r10 * 100);
+
+    tbody += `<tr>
+      <td><strong>${r.name}</strong></td>
+      <td>${methods.ret}</td><td>${methods.det}</td><td>${methods.mat}</td>
+      <td>${(r025*100).toFixed(2)}%</td>
+      <td>${(r05*100).toFixed(2)}%</td>
+      <td>${(r10*100).toFixed(2)}%</td>
+    </tr>`;
+  });
+  document.querySelector('#table7Scenes tbody').innerHTML = tbody || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No 7Scenes results yet</td></tr>';
+
+  if (s7.length > 0) {
+    new Chart(document.getElementById('chart7Scenes'), {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: '(0.25m, 2°)', data: data025, backgroundColor: '#3b82f6', borderRadius: 4 },
+          { label: '(0.5m, 5°)', data: data05, backgroundColor: '#22c55e', borderRadius: 4 },
+          { label: '(5.0m, 10°)', data: data10, backgroundColor: '#a78bfa', borderRadius: 4 },
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 16, font: {size:11} }} },
+        scales: {
+          y: { beginAtZero: true, max: 100, ticks: { callback: v => v+'%' }, grid: { color: '#f1f5f9' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  }
+}
+
+// ── AR Gallery ────────────────────────────────────────────────────
+function renderAR(results) {
+  const gallery = document.getElementById('arGallery');
+  const withAR = results.filter(r => r.ar_images && r.ar_images.length > 0);
+  if (withAR.length === 0) return;
+
+  let html = '';
+  for (const r of withAR.slice(0, 2)) {
+    for (const img of r.ar_images.slice(0, 4)) {
+      const fname = img.split('/').pop().replace(/\\/g, '/').split('/').pop();
+      html += `<div class="gallery-item">
+        <img src="/api/results/image?path=${encodeURIComponent(img)}" alt="${fname}" loading="lazy" onerror="this.parentElement.style.display='none'">
+        <div class="caption">${r.name} / ${fname}</div>
+      </div>`;
+    }
+  }
+  if (html) gallery.innerHTML = html;
+}
+
+init();
+</script>
+</body>
+</html>
