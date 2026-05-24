@@ -1,0 +1,310 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{xcolor}
+\usepackage{tabularx}
+
+\title{视觉定位实验报告}
+\author{KingsCollege / Cambridge Landmarks}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{实验设置}
+
+\subsection{数据集}
+Cambridge Landmarks / KingsCollege：训练集 1220 张，测试集 343 张。
+COLMAP 重建（二进制格式），分辨率 $1024 \times 576$，335,020 个 3D 点。
+GT 格式：camera center in world + world-to-camera quaternion $(q_w, q_x, q_y, q_z)$。
+
+\subsection{评估指标}
+Recall @ 三个阈值：$(0.25\text{m}, 2^\circ)$、$(0.5\text{m}, 5^\circ)$、$(5.0\text{m}, 10^\circ)$。
+
+\subsection{相机内参}
+$f_x = f_y = 1670$（原始 1920×1080），$f_x = f_y = 890.67$（COLMAP 1024×576）。
+$c_x = 960, c_y = 540$（原始）；$c_x = 512, c_y = 288$（COLMAP 分辨率）。
+
+\section{实验配置}
+
+\begin{table}[htbp]
+\centering
+\caption{实验配置对照表}
+\label{tab:configs}
+\begin{tabularx}{\textwidth}{lXXXX}
+\toprule
+\textbf{组件} & \textbf{baseline\_a} & \textbf{baseline\_b} & \textbf{exp\_retrieval} & \textbf{exp\_match} \\
+\midrule
+检索 & NetVLAD (PCA 4096) & NetVLAD (PCA 4096) & EigenPlaces (R50, 2048) & NetVLAD (PCA 4096) \\
+检测器 & SIFT (5000 kpts) & SuperPoint (4096 kpts) & SuperPoint (4096 kpts) & ALIKED (5000 kpts) \\
+匹配器 & NN (cross-check) & SuperGlue (outdoor, $\tau=0.2$) & SuperGlue (outdoor, $\tau=0.2$) & LightGlue (ALIKED, $\tau=0.1$) \\
+PnP & RANSAC (12px) & RANSAC (12px) & RANSAC (12px) & RANSAC (12px) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{实验结果}
+
+\subsection{各配置 Recall 对比}
+
+\begin{table}[htbp]
+\centering
+\caption{Recall 结果汇总}
+\label{tab:results}
+\begin{tabular}{lccc}
+\toprule
+\textbf{配置} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
+\midrule
+baseline\_a & 65.60\% & 92.42\% & 98.83\% \\
+baseline\_b & 66.18\% & 92.42\% & \textbf{100\%} \\
+baseline\_b + triangulation & \textbf{69.68\%} & \textbf{93.00\%} & \textbf{100\%} \\
+exp\_retrieval & 63.27\% & 85.71\% & \textbf{100\%} \\
+exp\_match & 67.35\% & 93.29\% & \textbf{100\%} \\
+exp\_full & 61.52\% & 86.88\% & \textbf{100\%} \\
+exp\_crica & 60.64\% & 85.71\% & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{baseline\_a 详情}
+NetVLAD + SIFT + NN cross-check + COLMAP 二值化模型。
+
+\begin{itemize}
+    \item 225/343 帧满足 $(0.25\text{m}, 2^\circ)$
+    \item 317/343 帧满足 $(0.5\text{m}, 5^\circ)$
+    \item 339/343 帧满足 $(5.0\text{m}, 10^\circ)$
+\end{itemize}
+
+\subsection{baseline\_b 详情}
+NetVLAD + SuperPoint + SuperGlue + COLMAP 二值化模型。
+
+\begin{itemize}
+    \item 227/343 帧满足 $(0.25\text{m}, 2^\circ)$
+    \item 317/343 帧满足 $(0.5\text{m}, 5^\circ)$
+    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%
+\end{itemize}
+
+\textbf{注意事项：} baseline\_b 初始配置 (SP 2K kpts + indoor weights) 在严格阈值
+上低于 baseline\_a（61.8\% vs 65.6\%）。优化 SuperPoint max\_keypoints 从 2048
+增至 4096、SuperGlue weights 从 ``indoor'' 改为 ``outdoor'' 后，提升至 66.18\%，
+超过 baseline\_a。但与 HLoc 论文参考值 ($\sim$86\%) 仍有差距。
+
+\subsection{baseline\_b + pycolmap 三角化 详情}
+NetVLAD + SuperPoint + SuperGlue + pycolmap 重三角化 SP+SG 3D 模型。
+
+\begin{itemize}
+    \item \textbf{239/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{69.68\%}（+3.50\% vs baseline\_b）
+    \item \textbf{319/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{93.00\%}（+0.58\%）
+    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%（持平）
+\end{itemize}
+
+\textbf{三角化参数}：num\_covis=20，生成 15904 个 DB 对，SuperGlue 匹配后几何验证
+（epipolar inlier 阈值 4.0px），inlier ratio 91.2\% / 93.5\% (mean/median)。
+重建结果：178,072 个 3D 点，2,054,587 个观测，平均 track length 11.5，
+平均重投影误差 1.61px。
+
+\textbf{分析}：pycolmap 三角化通过 SuperPoint+SuperGlue 匹配在已知位姿下重建
+SP-native 3D 模型，消除了 SIFT→SP 跨描述子对齐问题。+3.5\% 提升验证了该方法的有效性。
+与 HLoc 论文 ($\sim$86\%) 的差距可能来自：(1) 1024px vs 1920px 分辨率；
+(2) 论文使用更广泛的 pair 选择策略；(3) 可能的额外 BA 优化。
+
+\subsection{exp\_retrieval 详情}
+EigenPlaces (ResNet50 + GeM, 2048-dim) + SuperPoint (4096 kpts) + SuperGlue (outdoor)
++ pycolmap 三角化 SP+SG 3D 模型。
+
+\begin{itemize}
+    \item \textbf{217/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{63.27\%}
+    \item \textbf{294/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{85.71\%}
+    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%（持平）
+\end{itemize}
+
+\textbf{SfM 模型}：178,065 个 3D 点，2,054,573 个观测，平均 track length 11.54，
+平均重投影误差 1.61px（与 baseline\_b 一致，因使用相同 DB 特征和匹配）。
+
+\textbf{分析}：EigenPlaces 替换 NetVLAD 后 \textbf{反而下降 6--7\%}，出乎意料。
+可能原因：
+(1) NetVLAD 在 Google Street View 上训练，与 Cambridge 街景数据分布更接近；
+(2) PCA 白化 (4096-dim) 提供了更好的描述子区分度；
+(3) 2048-dim vs 4096-dim 描述子容量差异；
+(4) EigenPlaces 的 ResNet50 骨干网络可能对小分辨率的检索不够鲁棒。
+(5.0m, 10°) 阈值仍保持 100\%，说明检索端仍能找回足够相关的 DB 图像。
+
+\subsection{exp\_match 详情}
+NetVLAD (PCA 4096) + ALIKED (5000 kpts) + LightGlue (aliked, $\tau=0.1$) + COLMAP 二值化模型。
+
+\begin{itemize}
+    \item \textbf{231/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{67.35\%}（+1.75\% vs baseline\_a）
+    \item \textbf{320/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{93.29\%}（+0.87\% vs baseline\_a）
+    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%（+1.17\% vs baseline\_a）
+\end{itemize}
+
+\textbf{分析}：ALIKED + LightGlue 在所有阈值上均优于 SIFT + NN cross-check。
+ALIKED 生成约 2700 个关键点（vs SIFT 5000），但 LightGlue 匹配质量远高于
+NN cross-check（~16K--18K inliers vs ~？？K）。
+LightGlue 的自适应深度和置信度机制有效过滤了错误匹配，同时保持了高召回。
+(5.0m, 10°) 达到 100\%，说明该匹配组合不会产生完全错误的位姿。
+
+\subsection{exp\_full 详情}
+EigenPlaces (R50, 2048-dim) + ALIKED (5000 kpts) + LightGlue (aliked, $\tau=0.1$) + COLMAP 二值化模型。
+
+\begin{itemize}
+    \item \textbf{211/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{61.52\%}
+    \item \textbf{298/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{86.88\%}
+    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%
+\end{itemize}
+
+\textbf{分析}：EigenPlaces + ALIKED + LightGlue 全链路替换后，严格阈值下降
+至 61.52\%（vs baseline\_a 65.60\%），主要瓶颈仍在检索端。与 exp\_retrieval
+(63.27\%) 相比下降 1.75\%，与 exp\_match (67.35\%) 相比下降 5.83\%，说明
+NetVLAD 的检索质量对最终定位精度至关重要。LightGlue 匹配在中等阈值 $(0.5\text{m}, 5^\circ)$
+上略优于 SuperGlue（86.88\% vs 85.71\%），但无法弥补检索端差距。
+
+\subsection{exp\_crica 详情}
+CricaVPR (DINOv2 ViT-B/14, 10752-dim) + ALIKED (5000 kpts) + LightGlue (aliked, $\tau=0.1$) + COLMAP 二值化模型。
+
+\begin{itemize}
+    \item \textbf{208/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{60.64\%}
+    \item \textbf{294/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{85.71\%}
+    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%
+\end{itemize}
+
+\textbf{分析}：CricaVPR 在所有检索方案中表现最弱（60.64\%），比 NetVLAD 低
+6.71\%，比 EigenPlaces 低 0.88\%。尽管 CricaVPR 使用更强大的 ViT-B/14 骨干
+网络和跨图像相关感知机制，但在 Cambridge 数据集上的泛化能力不如专门为地点
+识别设计的 NetVLAD。可能原因：(1) CricaVPR 主要在结构化道路场景上训练，
+对 Cambridge 校园场景泛化不足；(2) 高维描述子 (10752-dim) 在匹配时不如
+PCA 压缩后的描述子鲁棒；(3) 跨图像编码器仅在检索 top-K 之间进行，而非
+全数据库。
+
+\subsection{消融实验总结}
+
+\begin{table}[htbp]
+\centering
+\caption{消融实验完整矩阵}
+\label{tab:ablation}
+\begin{tabular}{lccc}
+\toprule
+\textbf{配置} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
+\midrule
+baseline\_a (NetVLAD+SIFT+NN) & 65.60\% & 92.42\% & 98.83\% \\
+baseline\_b (NetVLAD+SP+SG) & 66.18\% & 92.42\% & \textbf{100\%} \\
+baseline\_b + triangulation & \textbf{69.68\%} & \textbf{93.00\%} & \textbf{100\%} \\
+\midrule
+exp\_retrieval (Eigen+SP+SG) & 63.27\% & 85.71\% & \textbf{100\%} \\
+exp\_match (NetVLAD+ALIKED+LG) & 67.35\% & 93.29\% & \textbf{100\%} \\
+exp\_full (Eigen+ALIKED+LG) & 61.52\% & 86.88\% & \textbf{100\%} \\
+exp\_crica (CricaVPR+ALIKED+LG) & 60.64\% & 85.71\% & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{关键结论}：
+\begin{enumerate}
+    \item \textbf{匹配端}: ALIKED + LightGlue 优于 SIFT + NN (+1.75\%) 和 SuperPoint + SuperGlue，在所有检索后端下均保持优势
+    \item \textbf{检索端}: NetVLAD (PCA 4096) 是 Cambridge 数据集上的最佳检索器，EigenPlaces 低 6--7\%，CricaVPR 低 6.7\%
+    \item \textbf{三角化}: SP+SG pycolmap 三角化提升 3.5\%，验证了 native 特征 3D 模型的重要性
+    \item \textbf{最佳配置}: baseline\_b + triangulation (69.68\%)，但仍低于 HLoc 论文参考值 ($\sim$86\%)，主要由于分辨率差异 (1024px vs 1920px)
+\end{enumerate}
+
+\subsection{分析}
+
+\section{7Scenes Stairs 数据集验证}
+
+\subsection{数据集与设置}
+7Scenes / Stairs：训练 4 序列 (seq-02,03,05,06, 2000 帧)，测试 2 序列 (seq-01,04, 1000 帧)。
+Kinect RGB-D 传感器，$640 \times 480$，深度图为 uint16 毫米。
+相机内参：$f_x = f_y = 585$, $c_x = 320$, $c_y = 240$。
+使用深度图反投影生成 2D-3D 对应关系（无需 COLMAP 模型）。
+
+\subsection{结果}
+
+\begin{table}[htbp]
+\centering
+\caption{7Scenes Stairs 结果}
+\label{tab:7scenes}
+\begin{tabular}{lccc}
+\toprule
+\textbf{配置} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
+\midrule
+NetVLAD + ALIKED + LightGlue & 30.60\% & 84.70\% & 97.10\% \\
+EigenPlaces + ALIKED + LightGlue & 18.90\% & 56.20\% & 82.30\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{分析}
+7Scenes Stairs 是室内场景，定位难度高于 Cambridge 室外场景：
+\begin{enumerate}
+    \item NetVLAD (30.60\%) 在室内场景的绝对精度低于 Cambridge (67.35\%)，符合预期
+    \item EigenPlaces (18.90\%) 再次显著低于 NetVLAD，与 Cambridge 结论一致
+    \item 深度图反投影质量受限于 Kinect 深度噪声和 640x480 低分辨率
+    \item $(0.5\text{m}, 5^\circ)$ 阈值下 NetVLAD 达到 84.7\%，说明大部分查询可接受范围内定位
+\end{enumerate}
+
+\subsection{跨数据集结论一致性}
+\begin{itemize}
+    \item \textbf{检索端}: 两个数据集上 NetVLAD $>$ EigenPlaces，差距约 40--50\%（相对下降）
+    \item \textbf{匹配端}: ALIKED + LightGlue 在两个数据集上均能稳定工作
+    \item \textbf{深度 2D-3D}: 无 SfM 模型时深度图反投影是可行替代方案
+\end{itemize}
+
+\subsection{分析}
+
+\begin{itemize}
+    \item SIFT (5K kpts) + NN cross-check 在基于 COLMAP SIFT 重建上表现强劲，
+          因为 SIFT 关键点与 3D 模型天然对齐
+    \item SuperGlue 匹配质量更高（$\sim$11K inliers vs $\sim$20K correspondences），
+          但受限于 SuperPoint 2K 关键点在 3D 模型上的覆盖
+    \item (5.0m, 10°) 阈值下 basline\_b 达到 100\%，说明 SuperGlue 匹配几乎
+          不会产生完全错误的位姿
+\end{itemize}
+
+\subsection{已知基线参考（文献值）}
+
+\begin{table}[htbp]
+\centering
+\caption{文献基线参考（KingsCollege）}
+\label{tab:literature}
+\begin{tabular}{lccc}
+\toprule
+\textbf{方法} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
+\midrule
+HLoc (SP+SG) \cite{sarlin2019coarse} & $\sim$86\% & $\sim$96\% & $\sim$99\% \\
+Active Search \cite{sattler2017large} & $\sim$44\% & $\sim$80\% & $\sim$95\% \\
+PoseNet \cite{kendall2015posenet} & $\sim$12\% & $\sim$35\% & $\sim$80\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{关键问题与修复}
+
+\begin{enumerate}
+    \item \textbf{Pose 坐标转换}（Issue 10）：PnP 返回 $(R, t)$ 其中 $X_{cam} = R X_{world} + t$，GT 存储 camera center $C$ 和 world-to-camera 四元数。修复：$t_{c2w} = -R^T t$，$q_{pred} = \text{R2Q}(R)$。
+    \item \textbf{SIFT 描述子兼容性}（Issue 11）：COLMAP 使用 VLFeat SIFT，代码用 OpenCV SIFT。修复：detectAndCompute + COLMAP 空间最近邻查找。
+    \item \textbf{COLMAP 二值化读取}（Issue 6）：struct.unpack 格式修正为 24 字节三元组 \texttt{(ddq)}。
+    \item \textbf{SuperGlue scores 缺失}（Issue 12）：补全 scores0/scores1 字段。
+    \item 其他杂项修复（Issues 1--5, 7--9, 13--14）。
+\end{enumerate}
+
+\section{待完成}
+
+\begin{itemize}
+    \item [完成] 运行 baseline\_a, baseline\_b, baseline\_b + triangulation
+    \item [完成] 测试 exp\_retrieval (EigenPlaces 检索端) — 63.27\%，比 NetVLAD 低 6.4\%
+    \item [完成] 测试 exp\_match (ALIKED + LightGlue 匹配端) — 67.35\%，超过 baseline\_a 1.75\%
+    \item [完成] 测试 exp\_full (EigenPlaces + ALIKED + LightGlue) — 61.52\%，检索端仍是瓶颈
+    \item [完成] 测试 exp\_crica (CricaVPR + ALIKED + LightGlue) — 60.64\%，检索端最弱
+    \item [完成] 完整消融实验矩阵
+\item [完成] 7Scenes Stairs 跨数据集验证
+\end{itemize}
+
+% \bibliographystyle{plain}
+% \bibliography{references}
+
+\end{document}

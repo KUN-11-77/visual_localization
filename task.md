@@ -76,3 +76,19 @@ hloc
 [15] ECO-TR: https://dltan7.github.io/ecotr/
 
 [16] SuperGlue: https://github.com/magicleap/SuperGluePretrainedNetwork
+
+检查task 我们提供了若干个课程项目，同学们可以自选其一。
+
+项目基本要求是实现对应的任务，同时需要满足项目中指明的界面、模块还有接口定义。我们的每个项目都要求实现一个完整的用户界面，运行时它可以接受用户的输入，显示得到的结果，并保存到用户指定的位置。一些任务中的关键模块需要同学们自行实现，不能够使用网络上公开的代码。其它未作明确要求的模块鼓励大家自己实现，酌情加分。 
+
+考虑到不同课程项目的难度有差异（难度：VisualSLAM > Visual Localization > Multi-view 3D Reconstruction > Image Completion with Structure Propagation >= Interactive Digital Photomontage >Image Colorization = Style transfer for traditional Chinese paintings = Monocular Depth Estimation），如想获得尽可能高的分数，建议选做难度系数大的课程项目，而且尽可能单人完成，如选难度系数较低的课程项目（建议组队不超过2人），对完成质量要求会更高。
+
+项目最多可以不大于三人一组完成，单人独立完成额外的模块会有加分。提交时，需要附上源代码，项目报告，报告末尾需要明确写明分工。
+
+项目答辩：暂定为最后的两节课，如有变化另行通知。
+
+源代码和项目报告提交截止时间：暂定为 2026年6月8日23:59， 如有变化另行通知。
+
+提交方式：报告和源代码打包提交至学在浙大。
+
+命名方式：final-项目名-学号-姓名.zip 

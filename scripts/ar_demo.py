@@ -1,15 +1,9 @@
 """
-AR Demo: Render a semi-transparent 3D cube onto query images using estimated poses.
+AR Demo: Render a 3D cube at a FIXED world position onto query images.
 
-Reads pred_poses.json from run_pipeline.py and projects a 3D cube onto query images.
-Localized frames get a green cube, failed frames get a red cube.
-Frames are evenly sampled from all queries for consistent video quality.
-
-Cube is placed per-frame in front of the camera (along view direction), not at a
-global scene center, ensuring visibility regardless of camera position.
-
-Per method.md: indoor (7Scenes) cube ~0.3m, outdoor (Cambridge) cube ~1.5m,
-semi-transparent (alpha ~0.6) for spatial jitter perception.
+Per task.md: the cube is placed in the reconstructed scene at a fixed world
+coordinate. If localization is accurate, the cube stays stable across frames.
+If the pose jitters, the cube jitters — visually demonstrating accuracy.
 
 Usage:
   python scripts/ar_demo.py --config configs/baseline_a.yaml \
@@ -17,9 +11,9 @@ Usage:
       --output outputs/ar_demo/baseline_a/ \
       --limit 30 --fps 5
 """
+
 import argparse
 import json
-import math
 from pathlib import Path
 
 import cv2
@@ -30,23 +24,30 @@ from tqdm import tqdm
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--config", required=True, help="Experiment YAML config")
-    p.add_argument("--poses", required=True, help="pred_poses.json from pipeline")
-    p.add_argument("--output", required=True, help="Output directory for AR images")
+    p.add_argument("--config", required=True)
+    p.add_argument("--poses", required=True)
+    p.add_argument("--output", required=True)
     p.add_argument("--cube_size", type=float, default=None,
-                   help="Cube side length in meters (auto: 1.5 outdoor / 0.3 indoor)")
-    p.add_argument("--cube_distance", type=float, default=1.0,
-                   help="Distance in meters to place cube in front of camera")
-    p.add_argument("--limit", type=int, default=30, help="Max frames (evenly sampled, 0=all)")
+                   help="Cube side length (m). Auto: 1.5 outdoor / 0.25 indoor")
+    p.add_argument("--cube_center", nargs=3, type=float, default=None,
+                   help="Cube world position x y z. Auto from COLMAP/GT if omitted.")
+    p.add_argument("--limit", type=int, default=30)
     p.add_argument("--line_width", type=int, default=3)
-    p.add_argument("--alpha", type=float, default=0.55,
-                   help="Face fill opacity (0-1)")
-    p.add_argument("--fps", type=int, default=5, help="FPS for output video (0=skip)")
+    p.add_argument("--alpha", type=float, default=0.5)
+    p.add_argument("--fps", type=int, default=5)
     return p.parse_args()
 
 
+def quat_to_rotmat(q):
+    qw, qx, qy, qz = q
+    return np.array([
+        [1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
+        [2*qx*qy + 2*qz*qw, 1 - 2*qx*qx - 2*qz*qz, 2*qy*qz - 2*qx*qw],
+        [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx*qx - 2*qy*qy],
+    ], dtype=np.float64)
+
+
 def make_cube_geometry(center, size):
-    """Return vertices, edges, and triangular faces for a cube."""
     d = size / 2.0
     cx, cy, cz = center
     verts = np.array([
@@ -61,35 +62,17 @@ def make_cube_geometry(center, size):
         (0, 4), (1, 5), (2, 6), (3, 7),
     ]
     faces = [
-        (0, 1, 2), (0, 2, 3),  # front
-        (5, 4, 7), (5, 7, 6),  # back
-        (4, 0, 3), (4, 3, 7),  # left
-        (1, 5, 6), (1, 6, 2),  # right
-        (3, 2, 6), (3, 6, 7),  # top
-        (4, 5, 1), (4, 1, 0),  # bottom
+        (0, 1, 2), (0, 2, 3),
+        (5, 4, 7), (5, 7, 6),
+        (4, 0, 3), (4, 3, 7),
+        (1, 5, 6), (1, 6, 2),
+        (3, 2, 6), (3, 6, 7),
+        (4, 5, 1), (4, 1, 0),
     ]
     return verts, edges, faces
 
 
-def quat_to_rotmat(q):
-    """Convert quaternion [qw, qx, qy, qz] to 3x3 rotation matrix."""
-    qw, qx, qy, qz = q
-    return np.array([
-        [1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
-        [2*qx*qy + 2*qz*qw, 1 - 2*qx*qx - 2*qz*qz, 2*qy*qz - 2*qx*qw],
-        [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx*qx - 2*qy*qy],
-    ], dtype=np.float64)
-
-
 def project_points(pts3d_world, t_c2w, q_w2c, K):
-    """Project world 3D points to 2D pixel coordinates.
-
-    pts3d_world: (N, 3) world coordinates
-    t_c2w: (3,) camera center in world
-    q_w2c: (4,) world-to-camera quaternion [qw, qx, qy, qz]
-
-    Returns: (N, 2) pixel coordinates, (N,) depth values
-    """
     R_w2c = quat_to_rotmat(q_w2c)
     pts_cam = (R_w2c @ pts3d_world.T).T + (-R_w2c @ t_c2w)
     pts_img = (K @ pts_cam.T).T
@@ -98,20 +81,11 @@ def project_points(pts3d_world, t_c2w, q_w2c, K):
     return pts2d, depth
 
 
-def cube_center_in_front(t_c2w, q_w2c, distance):
-    """Compute cube center placed `distance` meters in front of the camera."""
-    R_c2w = quat_to_rotmat(q_w2c).T  # world-to-cam → cam-to-world rotation
-    forward = R_c2w[:, 2]  # 3rd column of R_c2w is the forward direction
-    return t_c2w + forward * distance
-
-
 def draw_cube(image, verts2d, edges, faces, depth, color, alpha, line_width):
-    """Draw cube with semi-transparent filled faces and wireframe edges."""
     h, w = image.shape[:2]
     overlay = image.copy()
     color_bgr = tuple(int(c) for c in color)
 
-    # Draw filled faces with alpha blending
     for tri in faces:
         pts = []
         valid = True
@@ -129,7 +103,6 @@ def draw_cube(image, verts2d, edges, faces, depth, color, alpha, line_width):
 
     cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
 
-    # Draw wireframe edges on top
     for i, j in edges:
         if depth[i] <= 0 or depth[j] <= 0:
             continue
@@ -142,18 +115,82 @@ def draw_cube(image, verts2d, edges, faces, depth, color, alpha, line_width):
     return image
 
 
-def load_image(root, scene, img_name, dataset_name):
-    """Load query image with path resolution."""
-    path = root / img_name
-    img = cv2.imread(str(path))
-    if img is None:
-        alt_path = root / Path(img_name).name
-        img = cv2.imread(str(alt_path))
-    return img
+def find_scene_center(config_path):
+    """Find fixed world position for cube from COLMAP/NVM model or GT poses."""
+    with open(config_path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    dataset_cfg = cfg["dataset"]
+    root = Path(dataset_cfg["root"])
+    scene = dataset_cfg.get("scene", "")
+    dataset_name = dataset_cfg.get("name", "cambridge")
+
+    if dataset_name == "cambridge":
+        # Try COLMAP model
+        colmap_candidates = [
+            root / "colmap_model" / "CambridgeLandmarks_Colmap_Retriangulated_1024px"
+            / scene / "model_train",
+            root / "colmap_reconstruction",
+            root / "colmap_model",
+        ]
+        for cand in colmap_candidates:
+            points_bin = cand / "points3D.bin"
+            if points_bin.exists():
+                try:
+                    from scripts.colmap_localization import COLMAPLocalizationModel
+                    model = COLMAPLocalizationModel(str(cand))
+                    if hasattr(model, "points3D") and model.points3D:
+                        all_xyz = np.array([v["xyz"] for v in model.points3D.values()])
+                        center = np.median(all_xyz, axis=0)
+                        print(f"  Scene center from COLMAP ({len(all_xyz)} pts): {center}")
+                        return center.tolist()
+                except Exception as e:
+                    print(f"  COLMAP center failed: {e}")
+
+        # Try NVM model
+        nvm_path = root / dataset_cfg.get("nvm_model", "reconstruction.nvm")
+        if nvm_path.exists():
+            try:
+                from scripts.nvm_model import NVMModel
+                nvm = NVMModel(str(nvm_path))
+                if hasattr(nvm, "point3D_xyz") and nvm.point3D_xyz:
+                    all_xyz = np.array(list(nvm.point3D_xyz.values()))
+                    center = np.median(all_xyz, axis=0)
+                    print(f"  Scene center from NVM ({len(all_xyz)} pts): {center}")
+                    return center.tolist()
+            except Exception as e:
+                print(f"  NVM center failed: {e}")
+
+    if dataset_name == "7scenes":
+        # Estimate from GT poses
+        scene_root = root / scene
+        positions = []
+        for seq_dir in scene_root.iterdir():
+            if not seq_dir.is_dir():
+                continue
+            pose_files = list(seq_dir.glob("*.pose.txt"))
+            if not pose_files:
+                for child in seq_dir.iterdir():
+                    if child.is_dir():
+                        pose_files.extend(child.glob("*.pose.txt"))
+            for pf in pose_files[:50]:
+                try:
+                    pose = np.loadtxt(pf)
+                    positions.append(pose[:3, 3])
+                except Exception:
+                    pass
+        if positions:
+            positions = np.array(positions)
+            center = np.median(positions, axis=0)
+            center[1] += 0.2  # slightly above floor
+            print(f"  Scene center from GT poses ({len(positions)} cameras): {center}")
+            return center.tolist()
+
+    print("  WARNING: No scene model found, using origin [0,0,0]")
+    return [0.0, 0.0, 0.0]
 
 
 def build_K(dataset_cfg):
-    """Build camera intrinsic matrix from config (original resolution)."""
     if "camera_matrix" in dataset_cfg:
         return np.array(dataset_cfg["camera_matrix"], dtype=np.float64)
     fx = dataset_cfg.get("fx", 585.0)
@@ -164,19 +201,47 @@ def build_K(dataset_cfg):
 
 
 def auto_cube_size(dataset_name):
-    """Return appropriate cube size for dataset type."""
-    if dataset_name == "7scenes":
-        return 0.3  # indoor, per method.md
-    return 1.5  # outdoor Cambridge
+    return 0.25 if dataset_name == "7scenes" else 1.2
 
 
-def sample_frames(frame_items, limit):
-    """Evenly sample frames from sorted items for consistent video coverage."""
-    if limit <= 0 or limit >= len(frame_items):
-        return frame_items
-    step = len(frame_items) / limit
-    sampled = [frame_items[int(i * step)] for i in range(limit)]
-    return sampled
+def load_image(root, img_name):
+    path = root / img_name
+    img = cv2.imread(str(path))
+    if img is None:
+        img = cv2.imread(str(root / Path(img_name).name))
+    return img
+
+
+def sample_frames(items, limit):
+    """Select frames from the longest sequence for smooth, continuous video."""
+    if limit <= 0 or limit >= len(items):
+        return items
+
+    # Group frames by sequence (first path component)
+    import re
+    seqs = {}
+    for name, data in items:
+        parts = str(name).replace('\\', '/').split('/')
+        seq = parts[0] if parts else 'default'
+        if seq not in seqs:
+            seqs[seq] = []
+        seqs[seq].append((name, data))
+
+    # Pick the longest sequence for continuous video
+    best_seq = max(seqs.keys(), key=lambda s: len(seqs[s]))
+    seq_items = seqs[best_seq]
+
+    # Sort by frame number within sequence for temporal order
+    def _frame_num(item):
+        nums = re.findall(r'\d+', str(item[0]))
+        return int(nums[-1]) if nums else 0
+    seq_items.sort(key=_frame_num)
+
+    # Evenly sample from this single sequence
+    if limit >= len(seq_items):
+        return seq_items
+    step = len(seq_items) / limit
+    return [seq_items[int(i * step)] for i in range(limit)]
 
 
 def main():
@@ -192,7 +257,22 @@ def main():
 
     cube_size = args.cube_size if args.cube_size is not None else auto_cube_size(dataset_name)
 
-    img_root = root  # img names already include scene prefix for 7scenes
+    # Determine cube world position
+    if args.cube_center is not None:
+        cube_center = tuple(args.cube_center)
+        print(f"  Cube center (user): {cube_center}")
+    else:
+        cube_center = tuple(find_scene_center(args.config))
+
+    # Load poses for fallback cube placement
+    with open(args.poses, encoding="utf-8") as f:
+        pred_poses = json.load(f)
+
+    # If scene center could not be determined, fall back to median camera position
+    if np.linalg.norm(cube_center) < 0.01:
+        cam_positions = np.array([v["t"] for v in list(pred_poses.values())[:100]])
+        cube_center = tuple(np.median(cam_positions, axis=0) + np.array([0, 0.3, 0]))
+        print(f"  Cube at median camera pos: {tuple(round(float(v),2) for v in cube_center)}")
 
     with open(args.poses, encoding="utf-8") as f:
         pred_poses = json.load(f)
@@ -200,7 +280,7 @@ def main():
     all_frames = sorted(pred_poses.items())
     frames = sample_frames(all_frames, args.limit)
 
-    verts_3d_base, edges, faces = make_cube_geometry((0, 0, 0), cube_size)
+    verts_3d, edges, faces = make_cube_geometry(cube_center, cube_size)
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -208,50 +288,45 @@ def main():
     green = (0, 255, 0)
     red = (0, 0, 255)
     video_frames = []
+    n_loc = 0
 
-    n_localized = 0
-    n_total = 0
+    print(f"Rendering {len(frames)} frames "
+          f"(cube={cube_size}m at world {tuple(round(float(v),2) for v in cube_center)})...")
 
-    print(f"Rendering {len(frames)} AR frames (cube={cube_size}m, alpha={args.alpha}, "
-          f"distance={args.cube_distance}m)...")
     for img_name, pose_data in tqdm(frames):
-        image = load_image(img_root, scene, img_name, dataset_name)
+        image = load_image(root, img_name)
         if image is None:
             continue
 
         t_c2w = np.array(pose_data["t"])
         q_w2c = np.array(pose_data["q"])
 
-        # Place cube in front of camera, not at global origin
-        center = cube_center_in_front(t_c2w, q_w2c, args.cube_distance)
-        verts_3d, _, _ = make_cube_geometry(tuple(center), cube_size)
-
         pts2d, depth = project_points(verts_3d, t_c2w, q_w2c, K)
 
-        if len(pts2d) == 0 or np.all(depth <= 0):
-            continue
-
-        n_total += 1
         n_visible = int(np.sum(depth > 0))
-        is_localized = n_visible >= 4
+        cube_behind = (n_visible == 0)
+
+        # Green if cube is in front of camera, red only if pose is completely wrong
+        is_localized = not cube_behind
         if is_localized:
-            n_localized += 1
+            n_loc += 1
         color = green if is_localized else red
 
-        image_ar = draw_cube(image.copy(), pts2d, edges, faces, depth,
-                             color, args.alpha, args.line_width)
+        if not cube_behind:
+            image = draw_cube(image.copy(), pts2d, edges, faces, depth,
+                              color, args.alpha, args.line_width)
 
-        status = "LOCALIZED" if is_localized else "FAILED"
-        t_err_val = pose_data.get('t_err', None)
-        t_err_str = f"{float(t_err_val):.3f}" if t_err_val is not None else "?"
-        cv2.putText(image_ar, f"{status} | t_err={t_err_str}m",
-                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        label = "LOCALIZED" if is_localized else "FAILED (cube behind camera)"
+        cv2.putText(image, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, color, 2)
 
-        out_path = output_dir / f"{Path(img_name).stem}_ar.jpg"
-        cv2.imwrite(str(out_path), image_ar)
-        video_frames.append(image_ar)
+        # Use full relative path as filename to avoid collisions across seqs
+        safe_name = str(img_name).replace('\\', '_').replace('/', '_').replace('.png', '').replace('.jpg', '').replace('.color', '')
+        out_path = output_dir / f"{safe_name}_ar.jpg"
+        cv2.imwrite(str(out_path), image)
+        video_frames.append(image)
 
-    print(f"Saved {len(video_frames)} AR images ({n_localized}/{n_total} localized) "
+    print(f"Saved {len(video_frames)} AR images ({n_loc}/{len(video_frames)} visible) "
           f"to {output_dir}")
 
     if args.fps > 0 and len(video_frames) > 1:

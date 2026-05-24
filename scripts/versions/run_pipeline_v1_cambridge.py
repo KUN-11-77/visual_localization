@@ -23,14 +23,6 @@ def parse_args():
                    help="Limit number of query images (0=all)")
     p.add_argument("--spatial_radius", type=float, default=4.0,
                    help="Max pixel distance for 2D->3D lookup")
-    p.add_argument("--build_sfm", action="store_true",
-                   help="Build SP+SG SfM model via pycolmap triangulation")
-    p.add_argument("--num_covis", type=int, default=20,
-                   help="Number of covisible pairs per DB image for SfM")
-    p.add_argument("--output_dir", type=str, default=None,
-                   help="Override output directory for results")
-    p.add_argument("--poses_only", action="store_true",
-                   help="Only save pred_poses.json, skip CSV/timing writes")
     return p.parse_args()
 
 
@@ -114,7 +106,7 @@ def _load_cambridge(cfg):
     # Build camera intrinsics
     K = _build_camera_matrix(dataset_cfg)
 
-    return query_images, db_images, gt_poses, root, dataset_cfg, colmap_model, nvm_model, K, None
+    return query_images, db_images, gt_poses, root, dataset_cfg, colmap_model, nvm_model, K
 
 
 def _load_7scenes(cfg):
@@ -139,69 +131,38 @@ def _load_7scenes(cfg):
             if line.startswith("sequence"):
                 test_seqs.append(line)
 
-    def _find_sequence_dir(seq_name):
-        """Resolve sequence directory. Handles 'sequence1' -> 'seq-01' mapping."""
-        d = scene_root / seq_name
-        if d.exists():
-            return d
-        # Try 'seq-XX' format: sequence1 -> seq-01
-        if seq_name.startswith("sequence"):
-            num = seq_name[len("sequence"):]
-            alt = scene_root / f"seq-{int(num):02d}"
-            if alt.exists():
-                return alt
-        return None
-
-    def _find_color_files(seq_dir):
-        """Find all .color.png files, handling both flat and nested structures."""
-        files = sorted(seq_dir.glob("frame-*.color.png"))
-        if files:
-            return files, seq_dir
-        # Nested: seq-01/seq-01/frame-*.color.png
-        for child in seq_dir.iterdir():
-            if child.is_dir():
-                nested = sorted(child.glob("frame-*.color.png"))
-                if nested:
-                    return nested, child
-        return [], seq_dir
-
     # Collect database images from training sequences
     db_images = []
-    db_pose_files = {}
     for seq_name in train_seqs:
-        seq_dir = _find_sequence_dir(seq_name)
-        if seq_dir is None:
-            continue
-        files, actual_dir = _find_color_files(seq_dir)
-        for f in files:
-            rel_path = str(f.relative_to(root))
-            db_images.append(rel_path)
-            db_pose_files[rel_path] = actual_dir / f"{f.name.replace('.color.png', '.pose.txt')}"
+        seq_dir = scene_root / seq_name
+        if seq_dir.exists():
+            for f in sorted(seq_dir.glob("*.color.png")):
+                rel_path = f"{scene}/{seq_name}/{f.name}"
+                db_images.append(rel_path)
 
     # Collect query images from test sequences
     query_images = []
     gt_poses = {}
     for seq_name in test_seqs:
-        seq_dir = _find_sequence_dir(seq_name)
-        if seq_dir is None:
-            continue
-        files, actual_dir = _find_color_files(seq_dir)
-        for f in files:
-            rel_path = str(f.relative_to(root))
-            query_images.append(rel_path)
-            pose_file = actual_dir / f"{f.name.replace('.color.png', '.pose.txt')}"
-            if pose_file.exists():
-                pose = np.loadtxt(pose_file)
-                R_c2w = pose[:3, :3]
-                t_c2w = pose[:3, 3]
-                # Store camera center in world + world-to-camera quaternion
-                # (same convention as Cambridge GT)
-                R_w2c = R_c2w.T
-                q_w2c = _rotmat_to_quaternion(R_w2c)
-                gt_poses[rel_path] = (t_c2w, q_w2c)
+        seq_dir = scene_root / seq_name
+        if seq_dir.exists():
+            for f in sorted(seq_dir.glob("*.color.png")):
+                rel_path = f"{scene}/{seq_name}/{f.name}"
+                query_images.append(rel_path)
+                # Load ground truth pose
+                pose_file = seq_dir / f"{f.stem}.pose.txt"
+                if pose_file.exists():
+                    pose = np.loadtxt(pose_file)
+                    R_c2w = pose[:3, :3]
+                    t_c2w = pose[:3, 3]
+                    # Camera pose: world-to-camera
+                    R = R_c2w.T
+                    t = -R_c2w.T @ t_c2w
+                    q = _rotmat_to_quaternion(R)
+                    gt_poses[rel_path] = (t, q)
 
     K = _build_camera_matrix(dataset_cfg)
-    return query_images, db_images, gt_poses, root, dataset_cfg, None, None, K, db_pose_files
+    return query_images, db_images, gt_poses, root, dataset_cfg, None, None, K
 
 
 def _build_camera_matrix(dataset_cfg):
@@ -380,7 +341,7 @@ def main():
     matcher = build_matcher(cfg["matcher"])
 
     result = load_dataset(cfg)
-    query_images, db_images, gt_poses, root, dataset_cfg, colmap_model, nvm_model, K, db_pose_files = result
+    query_images, db_images, gt_poses, root, dataset_cfg, colmap_model, nvm_model, K = result
 
     n_query = len(query_images)
     if args.limit_queries > 0:
@@ -394,12 +355,10 @@ def main():
     print(f"  Camera K:\n{K}")
 
     # Determine 2D-3D strategy
-    use_colmap_sift = (colmap_model is not None)
-    use_nvm_sift = (nvm_model is not None and colmap_model is None and
+    use_colmap_sift = (colmap_model is not None and
+                       cfg["detector"]["method"] == "SIFTDetector")
+    use_nvm_sift = (nvm_model is not None and not use_colmap_sift and
                     cfg["detector"]["method"] == "SIFTDetector")
-    use_7scenes_depth = (db_pose_files is not None)
-    depth_p3d_xyz = {}  # point3D_id -> xyz (world) for 7scenes depth-based 3D
-    depth_next_pid = [0]  # mutable counter for unique point3D IDs
 
     # NVM reconstruction resolution (may be available from config or colmap_reconstruction)
     nvm_width = dataset_cfg.get("nvm_width", None)
@@ -443,11 +402,9 @@ def main():
     # Encode all database images
     print("Encoding database images...")
     if use_colmap_sift:
-        print("  Using detector + COLMAP spatial 2D-3D lookup")
+        print("  Using SIFT detection + COLMAP spatial 2D-3D lookup")
     elif use_nvm_sift:
         print("  Using NVM keypoints + SIFT descriptors (direct 2D-3D mapping)")
-    elif use_7scenes_depth:
-        print("  Using depth-based 2D-3D mapping (7Scenes RGB-D)")
     db_descs = []
     db_features = []
     db_img_paths = []
@@ -493,38 +450,6 @@ def main():
                 "name": img_name,
                 "point3D_ids": p3d_ids,
             })
-        elif use_7scenes_depth:
-            kpts, feats, scores = detector.detect(image)
-            h, w = image.shape[:2]
-            # Load depth map
-            depth_path = img_path.parent / f"{img_path.stem.replace('.color', '')}.depth.png"
-            depth_img = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
-            if depth_img is not None:
-                pose = np.loadtxt(db_pose_files[img_name])
-                R_c2w = pose[:3, :3]
-                t_c2w = pose[:3, 3]
-                valid, pts3d_world = _depth_unproject(kpts, depth_img, K, R_c2w, t_c2w)
-                # Assign unique point3D IDs
-                n_valid = int(np.sum(valid))
-                p3d_ids = np.full(len(kpts), -1, dtype=np.int64)
-                if n_valid > 0:
-                    start_id = depth_next_pid[0]
-                    p3d_ids_for_valid = np.arange(start_id, start_id + n_valid, dtype=np.int64)
-                    p3d_ids[valid] = p3d_ids_for_valid
-                    for i, pid in enumerate(p3d_ids_for_valid):
-                        depth_p3d_xyz[int(pid)] = pts3d_world[i]
-                    depth_next_pid[0] = start_id + n_valid
-            else:
-                p3d_ids = np.full(len(kpts), -1, dtype=np.int64)
-            db_descs.append(desc)
-            db_features.append({
-                "keypoints": kpts,
-                "descriptors": feats,
-                "scores": scores,
-                "image_size": (w, h),
-                "name": img_name,
-                "point3D_ids": p3d_ids,
-            })
         else:
             kpts, feats, scores = detector.detect(image)
             h, w = image.shape[:2]
@@ -541,42 +466,12 @@ def main():
     db_descs = np.stack(db_descs)
     db_names = db_images
 
-    # Build SuperPoint+SuperGlue SfM model via pycolmap triangulation
-    sp_p3d_xyz = None
-    if args.build_sfm and colmap_model is not None and len(db_features) > 0:
-        from scripts.build_sfm import build_superpoint_sfm
-
-        sfm_output_dir = Path(cfg["output"]["results_dir"]) / "sfm_model"
-        db_image_root = str(root)
-        print(f"\n=== Building SP+SG SfM model (pycolmap triangulation) ===")
-        lookup, reconstruction, sfm_dir = build_superpoint_sfm(
-            colmap_model, db_features, db_images, db_image_root,
-            sfm_output_dir, num_covis=args.num_covis, matcher=matcher,
-        )
-
-        # Build point3D_id -> xyz lookup from triangulated model
-        sp_p3d_xyz = {}
-        for pid, p3d in reconstruction.points3D.items():
-            sp_p3d_xyz[pid] = p3d.xyz
-
-        # Attach point3D_ids to each db_features entry
-        for idx, img_name in enumerate(db_images):
-            kp_count = len(db_features[idx]["keypoints"])
-            p3d_ids = np.full(kp_count, -1, dtype=np.int64)
-            for kp_idx in range(kp_count):
-                pid = lookup.get((img_name, kp_idx))
-                if pid is not None:
-                    p3d_ids[kp_idx] = int(pid)
-            db_features[idx]["point3D_ids"] = p3d_ids
-
-        print(f"=== SfM model built: {len(sp_p3d_xyz)} 3D points ===\n")
-
-    # Pre-build COLMAP 3D point lookup dict (for spatial lookup fallback)
+    # Pre-build COLMAP 3D point lookup dict
     colmap_p3d_xyz = None
     if use_colmap_sift and colmap_model is not None:
         colmap_p3d_xyz = {pid: v['xyz'] for pid, v in colmap_model.points3D.items()}
 
-    results_dir = Path(args.output_dir) if args.output_dir else Path(cfg["output"]["results_dir"])
+    results_dir = Path(cfg["output"]["results_dir"])
     results_dir.mkdir(parents=True, exist_ok=True)
 
     pred_poses = {}
@@ -632,15 +527,10 @@ def main():
 
             # 2D-3D lookup
             if "point3D_ids" in db_data:
-                # Direct mapping: matched DB keypoint index -> known 3D point ID
-                # (NVM SIFT or triangulated SP+SG model)
+                # Direct mapping: matched DB keypoint index → known 3D point ID (NVM SIFT path)
                 p3d_ids = db_data["point3D_ids"]
-                if sp_p3d_xyz is not None:
-                    p3d_xyz = sp_p3d_xyz
-                elif use_nvm_sift and nvm_model is not None:
+                if use_nvm_sift and nvm_model is not None:
                     p3d_xyz = nvm_model.point3D_xyz
-                elif use_7scenes_depth and len(depth_p3d_xyz) > 0:
-                    p3d_xyz = depth_p3d_xyz
                 else:
                     p3d_xyz = {}
                 for qi, di in zip(q_idx, db_idx):
@@ -726,16 +616,6 @@ def main():
     # Evaluate
     recall = compute_recall(pred_poses, gt_poses)
 
-    # Save predicted poses for AR demo
-    poses_json_path = results_dir / "pred_poses.json"
-    poses_serializable = {
-        name: {"t": t.tolist(), "q": q.tolist()}
-        for name, (t, q) in pred_poses.items()
-    }
-    with open(poses_json_path, "w") as f:
-        json.dump(poses_serializable, f, indent=2)
-    print(f"Predicted poses saved to {poses_json_path}")
-
     print("\n=== Results ===")
     for k in sorted(recall.keys()):
         v = recall[k]
@@ -744,56 +624,55 @@ def main():
         else:
             print(f"  {k}: {v}")
 
-    if not args.poses_only:
-        # Save timing
-        timing_path = results_dir / "timing.json"
-        dump_timing(str(timing_path))
-        print(f"\nTiming saved to {timing_path}")
+    # Save timing
+    timing_path = results_dir / "timing.json"
+    dump_timing(str(timing_path))
+    print(f"\nTiming saved to {timing_path}")
 
-        # Save per-frame log
-        frames_path = results_dir / "per_frame.csv"
-        with open(frames_path, "w", newline="") as f:
-            fieldnames = [
-                "query", "n_query_kpts", "n_correspondences", "n_inliers",
-                "retrieved_top1", "retrieved_top5", "t_err", "r_err",
-                "localized_0.25m_2deg",
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for row in per_frame:
-                writer.writerow(row)
-        print(f"Per-frame log saved to {frames_path}")
+    # Save per-frame log
+    frames_path = results_dir / "per_frame.csv"
+    with open(frames_path, "w", newline="") as f:
+        fieldnames = [
+            "query", "n_query_kpts", "n_correspondences", "n_inliers",
+            "retrieved_top1", "retrieved_top5", "t_err", "r_err",
+            "localized_0.25m_2deg",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in per_frame:
+            writer.writerow(row)
+    print(f"Per-frame log saved to {frames_path}")
 
-        # Save per-experiment results
-        csv_path = results_dir / "results.csv"
-        recall_items = sorted([k for k in recall.keys() if k.startswith("(")])
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"])
-            writer.writerow([
-                cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
-                *[recall[k] for k in recall_items],
-                recall.get("n_query", 0),
-                recall.get("n_localized", 0),
-            ])
+    # Save per-experiment results
+    csv_path = results_dir / "results.csv"
+    recall_items = sorted([k for k in recall.keys() if k.startswith("(")])
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"])
+        writer.writerow([
+            cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
+            *[recall[k] for k in recall_items],
+            recall.get("n_query", 0),
+            recall.get("n_localized", 0),
+        ])
 
-        # Append to summary
-        summary_path = Path("outputs/results/summary.csv")
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        header = ["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"]
-        with open(summary_path, "a", newline="") as f:
-            writer = csv.writer(f)
-            if summary_path.stat().st_size == 0:
-                writer.writerow(header)
-            writer.writerow([
-                cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
-                *[recall[k] for k in recall_items],
-                recall.get("n_query", 0),
-                recall.get("n_localized", 0),
-            ])
+    # Append to summary
+    summary_path = Path("outputs/results/summary.csv")
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    header = ["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"]
+    with open(summary_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if summary_path.stat().st_size == 0:
+            writer.writerow(header)
+        writer.writerow([
+            cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
+            *[recall[k] for k in recall_items],
+            recall.get("n_query", 0),
+            recall.get("n_localized", 0),
+        ])
 
-        print(f"Results saved to {csv_path}")
-        print(f"Summary appended to {summary_path}")
+    print(f"Results saved to {csv_path}")
+    print(f"Summary appended to {summary_path}")
 
 
 def _load_image(path):
@@ -801,45 +680,6 @@ def _load_image(path):
     if img is None:
         raise ValueError(f"Could not load image: {path}")
     return img
-
-
-def _depth_unproject(kpts, depth_img, K, R_c2w, t_c2w):
-    """Unproject keypoints to 3D world coordinates using depth map (7Scenes).
-
-    Args:
-        kpts: (N, 2) float32 array of (x, y) pixel coordinates
-        depth_img: (H, W) uint16 depth map in millimeters
-        K: (3, 3) camera intrinsic matrix
-        R_c2w: (3, 3) camera-to-world rotation
-        t_c2w: (3,) camera-to-world translation
-
-    Returns:
-        valid: (N,) bool mask indicating which keypoints have valid depth
-        pts3d_world: (M, 3) float32 world coordinates for valid keypoints
-    """
-    fx, fy = K[0, 0], K[1, 1]
-    cx, cy = K[0, 2], K[1, 2]
-
-    u = np.round(kpts[:, 0]).astype(np.int32)
-    v = np.round(kpts[:, 1]).astype(np.int32)
-
-    h, w = depth_img.shape
-    u = np.clip(u, 0, w - 1)
-    v = np.clip(v, 0, h - 1)
-
-    depth_mm = depth_img[v, u].astype(np.float32)
-    valid = (depth_mm > 0) & (depth_mm < 65500)
-
-    if not np.any(valid):
-        return valid, np.zeros((0, 3), dtype=np.float32)
-
-    z = depth_mm[valid] / 1000.0
-    x = (u[valid].astype(np.float32) - cx) * z / fx
-    y = (v[valid].astype(np.float32) - cy) * z / fy
-
-    X_cam = np.stack([x, y, z], axis=-1)
-    X_world = (R_c2w @ X_cam.T).T + t_c2w
-    return valid, X_world.astype(np.float32)
 
 
 def _rotmat_to_quaternion(R):

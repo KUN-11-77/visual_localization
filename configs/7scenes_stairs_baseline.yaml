@@ -1,0 +1,44 @@
+name: 7s_stairs_netvlad_aliked_lightglue
+description: "7Scenes stairs — NetVLAD + ALIKED + LightGlue (depth-based 3D)"
+
+retrieval:
+  method: NetVLADRetrieval
+  top_k: 10
+  params:
+    pca_dim: 4096
+    device: cuda
+
+detector:
+  method: ALIKEDDetector
+  params:
+    max_keypoints: 5000
+    device: cuda
+
+matcher:
+  method: LightGlueMatcher
+  params:
+    features: aliked
+    depth_confidence: 0.95
+    width_confidence: 0.99
+    filter_threshold: 0.1
+    device: cuda
+
+dataset:
+  name: 7scenes
+  scene: stairs
+  root: data/7scenes
+  fx: 585
+  fy: 585
+  cx: 320
+  cy: 240
+
+pose_solver:
+  method: pnp_ransac
+  ransac_thresh: 12.0
+  min_inliers: 12
+  confidence: 0.9999
+
+output:
+  results_dir: outputs/results/7scenes_stairs_baseline
+  save_retrieved: true
+  timing: true

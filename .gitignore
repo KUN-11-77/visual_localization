@@ -23,3 +23,12 @@ env/
 
 # Claude
 .claude/
+
+# LaTeX build artifacts
+experiment_report.aux
+experiment_report.fdb_latexmk
+experiment_report.fls
+experiment_report.log
+experiment_report.out
+experiment_report.pdf
+experiment_report.synctex.gz

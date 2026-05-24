@@ -11,12 +11,13 @@ retrieval:
 detector:
   method: SuperPointDetector
   params:
-    max_keypoints: 2048
+    max_keypoints: 4096
     device: cuda
 
 matcher:
   method: SuperGlueMatcher
   params:
+    weights: outdoor
     confidence_threshold: 0.2
     device: cuda
 

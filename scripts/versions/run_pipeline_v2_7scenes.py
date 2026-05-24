@@ -27,10 +27,6 @@ def parse_args():
                    help="Build SP+SG SfM model via pycolmap triangulation")
     p.add_argument("--num_covis", type=int, default=20,
                    help="Number of covisible pairs per DB image for SfM")
-    p.add_argument("--output_dir", type=str, default=None,
-                   help="Override output directory for results")
-    p.add_argument("--poses_only", action="store_true",
-                   help="Only save pred_poses.json, skip CSV/timing writes")
     return p.parse_args()
 
 
@@ -576,7 +572,7 @@ def main():
     if use_colmap_sift and colmap_model is not None:
         colmap_p3d_xyz = {pid: v['xyz'] for pid, v in colmap_model.points3D.items()}
 
-    results_dir = Path(args.output_dir) if args.output_dir else Path(cfg["output"]["results_dir"])
+    results_dir = Path(cfg["output"]["results_dir"])
     results_dir.mkdir(parents=True, exist_ok=True)
 
     pred_poses = {}
@@ -726,16 +722,6 @@ def main():
     # Evaluate
     recall = compute_recall(pred_poses, gt_poses)
 
-    # Save predicted poses for AR demo
-    poses_json_path = results_dir / "pred_poses.json"
-    poses_serializable = {
-        name: {"t": t.tolist(), "q": q.tolist()}
-        for name, (t, q) in pred_poses.items()
-    }
-    with open(poses_json_path, "w") as f:
-        json.dump(poses_serializable, f, indent=2)
-    print(f"Predicted poses saved to {poses_json_path}")
-
     print("\n=== Results ===")
     for k in sorted(recall.keys()):
         v = recall[k]
@@ -744,56 +730,55 @@ def main():
         else:
             print(f"  {k}: {v}")
 
-    if not args.poses_only:
-        # Save timing
-        timing_path = results_dir / "timing.json"
-        dump_timing(str(timing_path))
-        print(f"\nTiming saved to {timing_path}")
+    # Save timing
+    timing_path = results_dir / "timing.json"
+    dump_timing(str(timing_path))
+    print(f"\nTiming saved to {timing_path}")
 
-        # Save per-frame log
-        frames_path = results_dir / "per_frame.csv"
-        with open(frames_path, "w", newline="") as f:
-            fieldnames = [
-                "query", "n_query_kpts", "n_correspondences", "n_inliers",
-                "retrieved_top1", "retrieved_top5", "t_err", "r_err",
-                "localized_0.25m_2deg",
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for row in per_frame:
-                writer.writerow(row)
-        print(f"Per-frame log saved to {frames_path}")
+    # Save per-frame log
+    frames_path = results_dir / "per_frame.csv"
+    with open(frames_path, "w", newline="") as f:
+        fieldnames = [
+            "query", "n_query_kpts", "n_correspondences", "n_inliers",
+            "retrieved_top1", "retrieved_top5", "t_err", "r_err",
+            "localized_0.25m_2deg",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in per_frame:
+            writer.writerow(row)
+    print(f"Per-frame log saved to {frames_path}")
 
-        # Save per-experiment results
-        csv_path = results_dir / "results.csv"
-        recall_items = sorted([k for k in recall.keys() if k.startswith("(")])
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"])
-            writer.writerow([
-                cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
-                *[recall[k] for k in recall_items],
-                recall.get("n_query", 0),
-                recall.get("n_localized", 0),
-            ])
+    # Save per-experiment results
+    csv_path = results_dir / "results.csv"
+    recall_items = sorted([k for k in recall.keys() if k.startswith("(")])
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"])
+        writer.writerow([
+            cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
+            *[recall[k] for k in recall_items],
+            recall.get("n_query", 0),
+            recall.get("n_localized", 0),
+        ])
 
-        # Append to summary
-        summary_path = Path("outputs/results/summary.csv")
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        header = ["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"]
-        with open(summary_path, "a", newline="") as f:
-            writer = csv.writer(f)
-            if summary_path.stat().st_size == 0:
-                writer.writerow(header)
-            writer.writerow([
-                cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
-                *[recall[k] for k in recall_items],
-                recall.get("n_query", 0),
-                recall.get("n_localized", 0),
-            ])
+    # Append to summary
+    summary_path = Path("outputs/results/summary.csv")
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    header = ["experiment", "dataset", "scene"] + recall_items + ["n_query", "n_localized"]
+    with open(summary_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if summary_path.stat().st_size == 0:
+            writer.writerow(header)
+        writer.writerow([
+            cfg["name"], cfg["dataset"]["name"], cfg["dataset"]["scene"],
+            *[recall[k] for k in recall_items],
+            recall.get("n_query", 0),
+            recall.get("n_localized", 0),
+        ])
 
-        print(f"Results saved to {csv_path}")
-        print(f"Summary appended to {summary_path}")
+    print(f"Results saved to {csv_path}")
+    print(f"Summary appended to {summary_path}")
 
 
 def _load_image(path):
