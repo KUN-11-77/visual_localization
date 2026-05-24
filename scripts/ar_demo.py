@@ -201,7 +201,7 @@ def build_K(dataset_cfg):
 
 
 def auto_cube_size(dataset_name):
-    return 0.25 if dataset_name == "7scenes" else 1.2
+    return 0.4 if dataset_name == "7scenes" else 1.2
 
 
 def load_image(root, img_name):
@@ -257,6 +257,10 @@ def main():
 
     cube_size = args.cube_size if args.cube_size is not None else auto_cube_size(dataset_name)
 
+    # Load predicted poses
+    with open(args.poses, encoding="utf-8") as f:
+        pred_poses = json.load(f)
+
     # Determine cube world position
     if args.cube_center is not None:
         cube_center = tuple(args.cube_center)
@@ -264,18 +268,32 @@ def main():
     else:
         cube_center = tuple(find_scene_center(args.config))
 
-    # Load poses for fallback cube placement
-    with open(args.poses, encoding="utf-8") as f:
-        pred_poses = json.load(f)
+    # For 7Scenes (indoor, no SfM model): place cube in front of median camera
+    # so it's visible from most viewpoints
+    if dataset_name == "7scenes" and args.cube_center is None:
+        sample = list(pred_poses.values())[:100]
+        cam_positions = np.array([v["t"] for v in sample])
+        median_cam = np.median(cam_positions, axis=0)
 
-    # If scene center could not be determined, fall back to median camera position
+        # Compute average forward direction
+        forwards = []
+        for v in sample:
+            R_c2w = quat_to_rotmat(np.array(v["q"])).T
+            forwards.append(R_c2w[:, 2])
+        avg_forward = np.median(forwards, axis=0)
+        norm = np.linalg.norm(avg_forward)
+        if norm > 1e-8:
+            avg_forward /= norm
+
+        cube_center = tuple(median_cam + avg_forward * 0.8 + np.array([0, 0.4, 0]))
+        print(f"  Cube placed 0.8m in front of median camera: "
+              f"{tuple(round(float(v),2) for v in cube_center)}")
+
+    # If still at origin, fall back to median camera position
     if np.linalg.norm(cube_center) < 0.01:
         cam_positions = np.array([v["t"] for v in list(pred_poses.values())[:100]])
         cube_center = tuple(np.median(cam_positions, axis=0) + np.array([0, 0.3, 0]))
         print(f"  Cube at median camera pos: {tuple(round(float(v),2) for v in cube_center)}")
-
-    with open(args.poses, encoding="utf-8") as f:
-        pred_poses = json.load(f)
 
     all_frames = sorted(pred_poses.items())
     frames = sample_frames(all_frames, args.limit)
