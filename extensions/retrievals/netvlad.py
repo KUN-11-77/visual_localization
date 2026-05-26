@@ -16,8 +16,10 @@ class NetVLADRetrieval(BaseRetrieval):
 
     def _load_model(self):
         import sys
-        sys.path.insert(0, "xrlocalization")
-        from xrloc.features.netvlad import NetVLAD as _NetVLAD
+        from pathlib import Path
+        vendor_path = str(Path(__file__).resolve().parents[2] / "vendor" / "netvlad")
+        sys.path.insert(0, vendor_path)
+        from netvlad import NetVLAD as _NetVLAD
         self.model = _NetVLAD({"model_name": self.config.get("model_name", "VGG16-NetVLAD-Pitts30K"),
                                 "whiten": self.config.get("whiten", True)})
         import torch

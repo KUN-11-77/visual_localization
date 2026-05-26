@@ -249,7 +249,7 @@ def build_superpoint_sfm(colmap_model, db_features, db_images, db_image_root,
     # 6. Import matches and do geometric verification with known poses
     print("Importing matches and geometric verification...")
 
-    sys.path.insert(0, str(Path(__file__).parent.parent / "third_party" / "hloc"))
+    sys.path.insert(0, str(Path(__file__).parent.parent / "vendor" / "hloc"))
     from hloc.utils.geometry import compute_epipolar_errors
 
     with open(pairs_path, "r") as f:

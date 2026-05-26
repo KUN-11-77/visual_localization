@@ -39,6 +39,7 @@ def parse_args():
 
 
 def quat_to_rotmat(q):
+    """四元数 (qw, qx, qy, qz) → 3×3 旋转矩阵 (world-to-camera)"""
     qw, qx, qy, qz = q
     return np.array([
         [1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
@@ -48,6 +49,7 @@ def quat_to_rotmat(q):
 
 
 def make_cube_geometry(center, size):
+    """生成立方体的 8 个顶点、12 条边和 12 个三角面（世界坐标系）"""
     d = size / 2.0
     cx, cy, cz = center
     verts = np.array([
@@ -57,52 +59,87 @@ def make_cube_geometry(center, size):
         [cx + d, cy + d, cz + d], [cx - d, cy + d, cz + d],
     ], dtype=np.float64)
     edges = [
-        (0, 1), (1, 2), (2, 3), (3, 0),
-        (4, 5), (5, 6), (6, 7), (7, 4),
-        (0, 4), (1, 5), (2, 6), (3, 7),
+        (0, 1), (1, 2), (2, 3), (3, 0),    # 前面
+        (4, 5), (5, 6), (6, 7), (7, 4),    # 后面
+        (0, 4), (1, 5), (2, 6), (3, 7),    # 连接边
     ]
     faces = [
-        (0, 1, 2), (0, 2, 3),
-        (5, 4, 7), (5, 7, 6),
-        (4, 0, 3), (4, 3, 7),
-        (1, 5, 6), (1, 6, 2),
-        (3, 2, 6), (3, 6, 7),
-        (4, 5, 1), (4, 1, 0),
+        (0, 1, 2), (0, 2, 3),   # 前面 2 三角面
+        (5, 4, 7), (5, 7, 6),   # 后面 2 三角面
+        (4, 0, 3), (4, 3, 7),   # 左面 2 三角面
+        (1, 5, 6), (1, 6, 2),   # 右面 2 三角面
+        (3, 2, 6), (3, 6, 7),   # 顶面 2 三角面
+        (4, 5, 1), (4, 1, 0),   # 底面 2 三角面
     ]
     return verts, edges, faces
 
 
 def project_points(pts3d_world, t_c2w, q_w2c, K):
+    """
+    透视投影：世界坐标 3D 点 → 图像平面 2D 点。
+
+    公式: p_2d = K · (R_w2c · P_w + t_cam)
+          其中 t_cam = -R_w2c · t_c2w
+
+    Args:
+        pts3d_world: (N, 3) 世界坐标系下的 3D 点
+        t_c2w:       相机中心在世界坐标系的位置
+        q_w2c:       世界→相机四元数
+        K:           3×3 相机内参矩阵
+
+    Returns:
+        pts2d: (N, 2) 像素坐标
+        depth: (N,)  每个点的深度（正值=在相机前方）
+    """
+    # 转换到相机坐标系
     R_w2c = quat_to_rotmat(q_w2c)
     pts_cam = (R_w2c @ pts3d_world.T).T + (-R_w2c @ t_c2w)
+
+    # 内参投影
     pts_img = (K @ pts_cam.T).T
-    depth = pts_img[:, 2]
-    pts2d = pts_img[:, :2] / depth[:, np.newaxis]
+    depth = pts_img[:, 2]                       # Z 坐标 = 深度
+    pts2d = pts_img[:, :2] / depth[:, np.newaxis]  # 透视除法
     return pts2d, depth
 
 
 def draw_cube(image, verts2d, edges, faces, depth, color, alpha, line_width):
+    """
+    在图像上绘制半透明立方体。
+
+    Args:
+        image:     BGR 图像 (H, W, 3)
+        verts2d:   (8, 2) 8 个顶点的像素坐标
+        edges:     (12, 2) 12 条边的顶点索引对
+        faces:     (12, 3) 12 个三角面的顶点索引三元组
+        depth:     (8,) 每个顶点的深度
+        color:     (B, G, R) 颜色元组
+        alpha:     面片透明度 (0=全透明, 1=全不透明)
+        line_width: 边缘线宽
+    """
     h, w = image.shape[:2]
     overlay = image.copy()
     color_bgr = tuple(int(c) for c in color)
 
+    # === 面片填充：仅渲染深度 > 0 且顶点在视野内的面 ===
     for tri in faces:
         pts = []
         valid = True
         for idx in tri:
-            if depth[idx] <= 0:
+            if depth[idx] <= 0:          # 顶点在相机后方 → 跳过
                 valid = False
                 break
             x, y = verts2d[idx]
             if x < -50 or x > w + 50 or y < -50 or y > h + 50:
-                valid = False
+                valid = False             # 顶点远离画面 → 跳过
                 break
             pts.append((int(x), int(y)))
         if valid and len(pts) == 3:
             cv2.fillPoly(overlay, [np.array(pts, dtype=np.int32)], color_bgr)
 
+    # 半透明混合
     cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
 
+    # === 边缘线框：仅绘制两端点都在视野内的边 ===
     for i, j in edges:
         if depth[i] <= 0 or depth[j] <= 0:
             continue
@@ -116,7 +153,15 @@ def draw_cube(image, verts2d, edges, faces, depth, color, alpha, line_width):
 
 
 def find_scene_center(config_path):
-    """Find fixed world position for cube from COLMAP/NVM model or GT poses."""
+    """
+    自动查找立方体放置位置的世界坐标。
+
+    优先级:
+    1. COLMAP 二值化模型 (points3D.bin)  → 点云中位
+    2. NVM 模型 (reconstruction.nvm)     → 点云中位
+    3. 7-Scenes GT 位姿中位 + Y 偏移     → 中位相机位置上方 0.2m
+    4. 原点 [0, 0, 0]                    → 兜底方案
+    """
     with open(config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
@@ -126,7 +171,7 @@ def find_scene_center(config_path):
     dataset_name = dataset_cfg.get("name", "cambridge")
 
     if dataset_name == "cambridge":
-        # Try COLMAP model
+        # Cambridge: 尝试 COLMAP 模型
         colmap_candidates = [
             root / "colmap_model" / "CambridgeLandmarks_Colmap_Retriangulated_1024px"
             / scene / "model_train",
@@ -147,7 +192,7 @@ def find_scene_center(config_path):
                 except Exception as e:
                     print(f"  COLMAP center failed: {e}")
 
-        # Try NVM model
+        # Cambridge: 回退 NVM 模型
         nvm_path = root / dataset_cfg.get("nvm_model", "reconstruction.nvm")
         if nvm_path.exists():
             try:
@@ -162,7 +207,7 @@ def find_scene_center(config_path):
                 print(f"  NVM center failed: {e}")
 
     if dataset_name == "7scenes":
-        # Estimate from GT poses
+        # 7-Scenes: 从 GT 位姿估计场景中心
         scene_root = root / scene
         positions = []
         for seq_dir in scene_root.iterdir():
@@ -182,7 +227,7 @@ def find_scene_center(config_path):
         if positions:
             positions = np.array(positions)
             center = np.median(positions, axis=0)
-            center[1] += 0.2  # slightly above floor
+            center[1] += 0.2  # 略高于地面
             print(f"  Scene center from GT poses ({len(positions)} cameras): {center}")
             return center.tolist()
 
@@ -201,7 +246,7 @@ def build_K(dataset_cfg):
 
 
 def auto_cube_size(dataset_name):
-    return 0.4 if dataset_name == "7scenes" else 1.2
+    return 0.2 if dataset_name == "7scenes" else 1.2
 
 
 def load_image(root, img_name):
@@ -212,24 +257,45 @@ def load_image(root, img_name):
     return img
 
 
-def sample_frames(items, limit):
-    """Select frames from the longest sequence for smooth, continuous video."""
+def sample_frames(items, limit, per_frame_errors=None):
+    """Select frames from the best-quality sequence for smooth, continuous video.
+
+    Sequences are ranked by localization quality (median t_err from per_frame.csv).
+    Falls back to the longest sequence if per_frame data is unavailable.
+    """
     if limit <= 0 or limit >= len(items):
         return items
 
-    # Group frames by sequence (first path component)
     import re
+
+    # Group frames by sequence (second-to-last path component)
     seqs = {}
     for name, data in items:
         parts = str(name).replace('\\', '/').split('/')
-        seq = parts[0] if parts else 'default'
+        seq = parts[-2] if len(parts) >= 2 else (parts[0] if parts else 'default')
         if seq not in seqs:
             seqs[seq] = []
         seqs[seq].append((name, data))
 
-    # Pick the longest sequence for continuous video
-    best_seq = max(seqs.keys(), key=lambda s: len(seqs[s]))
+    # Rank sequences: prefer best localization quality, then length as tiebreaker
+    def _seq_score(seq_name):
+        """Lower score = better sequence."""
+        if per_frame_errors and seq_name in per_frame_errors:
+            errs = per_frame_errors[seq_name]
+            if errs:
+                return (0, np.median(errs), -len(seqs[seq_name]))
+        return (1, 0, -len(seqs[seq_name]))
+
+    best_seq = min(seqs.keys(), key=_seq_score)
     seq_items = seqs[best_seq]
+    quality_note = ""
+    if per_frame_errors and best_seq in per_frame_errors:
+        errs = per_frame_errors[best_seq]
+        if errs:
+            quality_note = (f" (median t_err={np.median(errs):.3f}m, "
+                          f"{len(seq_items)} frames, "
+                          f"{sum(1 for e in errs if e < 0.25)/len(errs)*100:.0f}% @0.25m)")
+    print(f"  Selected seq={best_seq}{quality_note}")
 
     # Sort by frame number within sequence for temporal order
     def _frame_num(item):
@@ -268,25 +334,14 @@ def main():
     else:
         cube_center = tuple(find_scene_center(args.config))
 
-    # For 7Scenes (indoor, no SfM model): place cube in front of median camera
-    # so it's visible from most viewpoints
+    # For 7Scenes (indoor, no SfM model): place cube at centroid of all camera
+    # positions + Y offset, so it sits near the center of the captured scene
+    # (e.g., on the stairs for the stairs scene) where most cameras can see it
     if dataset_name == "7scenes" and args.cube_center is None:
-        sample = list(pred_poses.values())[:100]
-        cam_positions = np.array([v["t"] for v in sample])
-        median_cam = np.median(cam_positions, axis=0)
-
-        # Compute average forward direction
-        forwards = []
-        for v in sample:
-            R_c2w = quat_to_rotmat(np.array(v["q"])).T
-            forwards.append(R_c2w[:, 2])
-        avg_forward = np.median(forwards, axis=0)
-        norm = np.linalg.norm(avg_forward)
-        if norm > 1e-8:
-            avg_forward /= norm
-
-        cube_center = tuple(median_cam + avg_forward * 0.8 + np.array([0, 0.4, 0]))
-        print(f"  Cube placed 0.8m in front of median camera: "
+        all_positions = np.array([np.array(v["t"]) for v in pred_poses.values()])
+        centroid = np.median(all_positions, axis=0)
+        cube_center = tuple(centroid + np.array([0, 1.0, 0]))
+        print(f"  Cube at scene centroid + 1.0m Y: "
               f"{tuple(round(float(v),2) for v in cube_center)}")
 
     # If still at origin, fall back to median camera position
@@ -296,7 +351,25 @@ def main():
         print(f"  Cube at median camera pos: {tuple(round(float(v),2) for v in cube_center)}")
 
     all_frames = sorted(pred_poses.items())
-    frames = sample_frames(all_frames, args.limit)
+
+    # Load per_frame.csv to rank sequences by localization quality
+    per_frame_errors = {}
+    per_frame_csv = Path(args.poses).parent / "per_frame.csv"
+    if per_frame_csv.exists():
+        import csv
+        with open(per_frame_csv, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                name = row.get("query", "")
+                t_err_str = row.get("t_err", "")
+                if name and t_err_str:
+                    parts = str(name).replace('\\', '/').split('/')
+                    seq = parts[-2] if len(parts) >= 2 else (parts[0] if parts else 'default')
+                    try:
+                        per_frame_errors.setdefault(seq, []).append(float(t_err_str))
+                    except ValueError:
+                        pass
+
+    frames = sample_frames(all_frames, args.limit, per_frame_errors)
 
     verts_3d, edges, faces = make_cube_geometry(cube_center, cube_size)
 

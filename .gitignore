@@ -7,7 +7,15 @@ __pycache__/
 # Data
 data/
 outputs/
+
+# Downloaded model weights
 weights/
+vendor/*/weights/
+vendor/netvlad/models/
+
+# Removed old dependencies (now using vendor/)
+third_party/
+xrlocalization/
 
 # IDE
 .vscode/
@@ -24,11 +32,12 @@ env/
 # Claude
 .claude/
 
-# LaTeX build artifacts
+# LaTeX build artifacts (except final PDF)
 experiment_report.aux
 experiment_report.fdb_latexmk
 experiment_report.fls
 experiment_report.log
 experiment_report.out
-experiment_report.pdf
+experiment_report.toc
+experiment_report.xdv
 experiment_report.synctex.gz

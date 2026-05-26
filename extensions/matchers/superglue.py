@@ -17,8 +17,10 @@ class SuperGlueMatcher(BaseMatcher):
     def _load_model(self):
         import sys
         import torch
-        sys.path.insert(0, "third_party/SuperGluePretrainedNetwork")
-        from models.superglue import SuperGlue
+        from pathlib import Path
+        sp_dir = str(Path(__file__).resolve().parents[2] / "vendor" / "superglue")
+        sys.path.insert(0, sp_dir)
+        from superglue import SuperGlue
         config = {
             "descriptor": "superpoint",
             "weights": self.config.get("weights", "indoor"),

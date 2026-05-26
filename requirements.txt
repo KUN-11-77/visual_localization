@@ -1,15 +1,37 @@
+# ============================================================
+# Visual Localization — Python Dependencies
+# ============================================================
+# Install: pip install -r requirements.txt
+
+# --- Core ---
 torch>=1.12.0
 torchvision>=0.13.0
 numpy>=1.21
-opencv-python>=4.6
 scipy>=1.9
+opencv-python>=4.6
+
+# --- Pipeline ---
+pyyaml>=6.0
 h5py>=3.7
 tqdm>=4.64
-pyyaml>=6.0
-matplotlib>=3.6
-seaborn>=0.12
 Pillow>=9.2
-einops>=0.6
-faiss-cpu>=1.7
+
+# --- Feature Extraction & Matching ---
+lightglue>=0.2
 kornia>=0.6
+
+# --- Retrieval ---
+faiss-cpu>=1.7
 scikit-learn>=0.24
+
+# --- SfM Triangulation ---
+pycolmap>=0.6
+
+# --- Web UI ---
+flask>=3.0
+
+# --- Visualization ---
+matplotlib>=3.6
+
+# --- Optional (for image encoding) ---
+einops>=0.6

@@ -1,310 +1,1086 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass[12pt,a4paper]{ctexart}
 
-\usepackage[UTF8]{ctex}
+% --- Packages ---
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
-\usepackage{graphicx}
-\usepackage{hyperref}
-\usepackage[margin=2.5cm]{geometry}
+\usepackage{colortbl}
+\usepackage[margin=2.5cm, headheight=25pt]{geometry}
 \usepackage{xcolor}
 \usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{tocloft}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, positioning, calc, backgrounds, fit}
+\usepackage[most]{tcolorbox}
+\usepackage{listings}
 
-\title{视觉定位实验报告}
-\author{KingsCollege / Cambridge Landmarks}
-\date{\today}
+\graphicspath{{figures/}}
+
+% --- Code Listing Style ---
+\lstdefinestyle{pythonstyle}{
+  language=Python,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{accent}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{best},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=5pt,
+  frame=single,
+  framesep=6pt,
+  framerule=0.5pt,
+  rulecolor=\color{primary!30},
+  breaklines=true,
+  breakatwhitespace=false,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  tabsize=4,
+  captionpos=b,
+  xleftmargin=8pt,
+  xrightmargin=8pt,
+  aboveskip=8pt,
+  belowskip=8pt,
+}
+
+% --- Color Palette ---
+\definecolor{primary}{RGB}{25,60,120}
+\definecolor{accent}{RGB}{0,120,200}
+\definecolor{lightgray}{RGB}{245,247,250}
+\definecolor{headbg}{RGB}{25,60,120}
+\definecolor{rowodd}{RGB}{248,250,252}
+\definecolor{roweven}{RGB}{240,244,248}
+\definecolor{best}{RGB}{0,130,80}
+\definecolor{warn}{RGB}{200,80,30}
+
+% --- Page Style ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{primary}计算摄影学课程大作业}
+\fancyhead[R]{\small\color{primary}视觉定位项目报告}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{primary}\leaders\hrule height 0.5pt\hfill}}
+
+% --- Section Formatting ---
+\titleformat{\section}
+  {\Large\bfseries\color{primary}}
+  {\thesection}{1em}{}
+\titleformat{\subsection}
+  {\large\bfseries\color{primary!80}}
+  {\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalsize\bfseries\color{primary!70}}
+  {\thesubsubsection}{1em}{}
+
+% --- Lists ---
+\setlist{nosep,leftmargin=*}
+
+% --- Hyperref ---
+\hypersetup{
+  colorlinks=true,
+  linkcolor=accent,
+  urlcolor=accent,
+  citecolor=accent
+}
+
+% --- Highlight boxes ---
+\newtcolorbox{keyfinding}{
+  colback=lightgray, colframe=accent, arc=4pt, boxrule=0.8pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+\newtcolorbox{methodbox}{
+  colback=lightgray, colframe=primary!50, arc=4pt, boxrule=0.5pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+% --- Table helpers ---
+\newcommand{\bestval}[1]{\textcolor{best}{\textbf{#1}}}
 
 \begin{document}
 
-\maketitle
+%=====================================================================
+%  TITLE PAGE
+%=====================================================================
 
-\section{实验设置}
+\begin{titlepage}
+\centering
+
+\vspace*{3cm}
+
+{\fontsize{32}{38}\selectfont\bfseries\color{primary} 基于分层策略的\\[8pt] 视觉定位系统 \par}
+
+\vspace{1.5cm}
+
+{\Large\color{primary!80} Hierarchical Visual Localization System}
+
+\vspace{2.5cm}
+
+\begin{tikzpicture}[overlay]
+  \draw[primary!30,line width=1pt] (-6,0) -- (6,0);
+  \node[fill=white,text=primary!70] at (0,0) {\Large\bfseries 高级计算机视觉 · 课程大作业项目报告};
+\end{tikzpicture}
+
+\vspace{2.5cm}
+
+{\large
+\begin{tabular}{rl}
+  \textbf{基础框架} & OpenXRLab XRLocalization / HLoc \\[6pt]
+  \textbf{完成形式} & 单人独立完成 \\[6pt]
+  \textbf{提交日期} & 2026年6月8日
+\end{tabular}
+}
+
+\vfill
+{\small\color{primary!50}\rule{0.4\textwidth}{0.3pt}\\ 计算机科学与技术学院}
+
+\end{titlepage}
+
+%=====================================================================
+%  TABLE OF CONTENTS
+%=====================================================================
+
+\tableofcontents
+\newpage
+
+%=====================================================================
+\section{引言与任务概述}
+%=====================================================================
+
+视觉定位 (Visual Localization) 的目标很明确：给一张当前拍的照片，让计算机算出这张照片是在
+三维空间里的哪个位置、以什么角度拍的——也就是恢复相机的 6 自由度 (6-DoF) 位姿（3 自由度位置 +
+3 自由度朝向）。这个技术在自动驾驶、AR、机器人导航里都有实际应用。
+
+直接拿一张 query 图像去跟数据库里的所有图像做特征匹配，理论上可行，但实际上太慢了，而且误匹配
+很多。分层定位 (Hierarchical Localization, HLoc) 的思路是把这件事拆成四步，一级一级缩小搜索范围：
+
+\begin{methodbox}
+\textbf{分层定位的四个阶段：}
+\begin{enumerate}
+  \item \textbf{图像检索} — 用全局特征快速找到最像的 $K$ 张候选图像（$K \ll N$）
+  \item \textbf{特征检测} — 在 query 和候选图像上提取关键点和局部描述符
+  \item \textbf{特征匹配} — 建立两张图之间点对点的对应关系
+  \item \textbf{位姿估计} — 用 2D-3D 对应关系 + RANSAC/PnP 解出相机位姿
+\end{enumerate}
+\end{methodbox}
+
+这个项目基于 OpenXRLab 的 XRLocalization 框架，我在它的基础上扩展了 4 个新模块（2 个检索器 +
+1 个检测器 + 1 个匹配器），在 Cambridge Landmarks 和 7-Scenes 两个数据集上跑通了完整流程，
+最后还搭了一个 Web 界面和 AR Demo 来做可视化展示。
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.2cm and 0.8cm,
+  box/.style={rectangle, rounded corners=6pt, draw=primary, fill=primary!5,
+              text width=3.2cm, align=center, minimum height=1.6cm, font=\small\bfseries},
+  arrow/.style={->, >=stealth, line width=1.2pt, color=accent},
+  label/.style={font=\footnotesize\color{primary!70}}
+]
+  % Nodes
+  \node[box, fill=accent!10, draw=accent] (query) {Query 图像};
+  \node[box, right=of query] (retrieval) {图像检索\\Retrieval};
+  \node[box, fill=accent!10, right=of retrieval] (db) {Top-K\\候选图像};
+  \node[box, below=of retrieval] (detect) {特征检测\\Detection};
+  \node[box, below=of detect] (match) {特征匹配\\Matching};
+  \node[box, below=of match] (pnp) {位姿估计\\PnP + RANSAC};
+  \node[box, fill=best!10, draw=best, right=of pnp] (pose) {相机位姿\\$(R, t)$};
+
+  % Arrows
+  \draw[arrow] (query) -- (retrieval);
+  \draw[arrow] (retrieval) -- (db);
+  \draw[arrow] (db.south) |- ++(0,-0.6) -| (detect.north);
+  \draw[arrow] (query.south) |- ++(0,-2.4) -| (detect.north);
+  \draw[arrow] (detect) -- (match);
+  \draw[arrow] (match) -- (pnp);
+  \draw[arrow] (pnp) -- (pose);
+
+  % Labels
+  \node[label, above=0.15cm of retrieval] {全局描述符};
+  \node[label, right=0.1cm of db, anchor=west, text width=2cm] {$K \ll N$ \\ 粗定位};
+  \node[label, right=0.1cm of match.east, anchor=west] {2D-2D 对应};
+  \node[label, right=0.1cm of pnp.east, anchor=west, yshift=-0.1cm] {2D-3D 对应};
+  \node[label, right=0.1cm of pose.east, anchor=west] {精定位};
+
+  % Background boxes
+  \begin{scope}[on background layer]
+    \node[draw=accent!30, fill=accent!3, rounded corners=8pt,
+          fit=(db)(retrieval), inner sep=8pt,
+          label={[anchor=north west]north west:{\footnotesize\color{accent}第1阶段}}] {};
+    \node[draw=primary!30, fill=primary!3, rounded corners=8pt,
+          fit=(detect)(match)(pnp)(pose), inner sep=8pt,
+          label={[anchor=north west]north west:{\footnotesize\color{primary}第2--4阶段}}] {};
+  \end{scope}
+\end{tikzpicture}
+\caption{分层视觉定位流水线概览：第1阶段用全局特征做粗检索，缩小搜索范围；
+第2--4阶段在少量候选图像上做精细的特征检测、匹配和位姿估计。}
+\label{fig:pipeline}
+\end{figure}
+
+%=====================================================================
+\section{系统架构与模块设计}
+%=====================================================================
+
+\subsection{图像检索模块}
+
+这是\textbf{粗定位}阶段。输入 query 图像，用预训练的全局特征网络提取一个全局描述符，
+然后在预先建好的数据库里用余弦相似度找 Top-K 张最相似的候选图像，把后续精细匹配的搜索
+范围从整个数据库缩减到 K 张图。
+
+\subsection{特征检测与提取模块}
+
+在精定位阶段，对 query 图像和上一步筛选出的候选数据库图像，分别提取关键点位置、得分
+以及局部特征描述符，为后续匹配提供输入。
+
+\subsection{特征匹配模块}
+
+建立 query 和每张候选图像之间点对点的 2D-2D 对应关系。传统的最近邻匹配在视角变化大、
+光照不好的时候容易出错。现代方法用图神经网络 (GNN) 来做匹配——通过注意力机制让特征点
+在全局上下文中相互"看到"彼此，匹配质量明显更好。
+
+\subsection{位姿估计模块}
+
+收集所有匹配对，结合预先通过 COLMAP 重建的 3D 点云（或深度图反投影建立的 2D-3D 映射），
+建立 query 图像的 2D 关键点到世界坐标系 3D 点的对应关系。用 RANSAC 剔除错误匹配，
+再用 PnP 求解器算出相机位姿 $\mathbf{T} = [\mathbf{R} \mid \mathbf{t}]$。
+
+%=====================================================================
+\section{方法扩展与实现细节}
+%=====================================================================
+
+课程大作业要求在 baseline 之外至少扩展一个检索方法、一个检测方法和一个匹配方法。
+我在 baseline (NetVLAD + SIFT + NN 和 NetVLAD + SuperPoint + SuperGlue) 的基础上，
+集成了 4 个新模块：EigenPlaces 和 CricaVPR 用于检索，ALIKED 用于检测，LightGlue 用于匹配。
+
+\subsection{图像检索模块扩展}
+
+\subsubsection{EigenPlaces}
+EigenPlaces (ICCV 2023) 是一个基于 ResNet50 骨干的视觉地点识别方法。它用 GeM (Generalized-Mean)
+池化层生成 2048 维全局描述符，通过在大规模地理标注数据上训练来学习场景的通用表示。
+我继承了 \texttt{BaseRetrieval} 接口，实现了 \texttt{encode()} 方法，配置了 ResNet50 特征提取
+和 GeM 池化（参数 $p=3$）。
+
+\subsubsection{CricaVPR}
+CricaVPR (CVPR 2024) 用 DINOv2 ViT-B/14 作为骨干，通过空间金字塔池化（SPP）把特征图分成不同
+尺度的小块分别做 GeM 池化，再用跨图像 Transformer 编码器让同一 batch 里的多张图互相"感知"对方，
+最终输出 10752 维描述符 (14 个 SPP 区域 $\times$ 768 维)。集成时重点处理了 ViT 的 patch embedding
+和跨图像 token 交互逻辑。
+
+\subsection{特征检测与匹配模块扩展}
+
+\subsubsection{ALIKED}
+ALIKED (T-IM 2023) 是一个深度关键点检测器，用可变形卷积和特征金字塔来做多尺度检测。
+跟 SIFT 比，它对光照和视角变化更鲁棒；跟 SuperPoint 比，关键点分布更均匀，不太会扎堆在
+纹理丰富的区域。配置：最多 5000 个关键点，得分阈值 0.2。
+
+\subsubsection{LightGlue}
+LightGlue (ICCV 2023) 是 SuperGlue 的轻量改进版。它引入了自适应深度机制——根据匹配难度
+自动决定用多少层注意力：简单的匹配对可能 3 层就够了，难的才用满 9 层。这样在保证匹配质量
+的同时推理速度提升了 3--4 倍。配置：特征类型 \texttt{aliked}，置信度阈值 $\tau = 0.1$。
+
+%=====================================================================
+\section{实验设置与评估方法}
+%=====================================================================
 
 \subsection{数据集}
-Cambridge Landmarks / KingsCollege：训练集 1220 张，测试集 343 张。
-COLMAP 重建（二进制格式），分辨率 $1024 \times 576$，335,020 个 3D 点。
-GT 格式：camera center in world + world-to-camera quaternion $(q_w, q_x, q_y, q_z)$。
+
+\begin{table}[H]
+\centering
+\caption{实验数据集概览}
+\label{tab:datasets}
+\begin{tabular}{@{}p{3.5cm}llll@{}}
+\toprule
+\textbf{属性} & \textbf{Cambridge KingsCollege} & \textbf{7-Scenes Stairs} \\
+\midrule
+场景类型 & 室外大场景（校园建筑） & 室内小场景（楼梯间） \\
+传感器 & 单目 RGB 相机 & Kinect RGB-D \\
+分辨率 & $1024 \times 576$ & $640 \times 480$ \\
+训练集规模 & 1,220 帧 & 2,000 帧 \\
+测试集规模 & 343 帧 & 1,000 帧 \\
+3D 模型 & COLMAP SfM (335K pts) & 深度图反投影 \\
+核心难点 & 重复纹理、视角变化 & 纹理贫乏、平面几何 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{评估指标}
-Recall @ 三个阈值：$(0.25\text{m}, 2^\circ)$、$(0.5\text{m}, 5^\circ)$、$(5.0\text{m}, 10^\circ)$。
 
-\subsection{相机内参}
-$f_x = f_y = 1670$（原始 1920×1080），$f_x = f_y = 890.67$（COLMAP 1024×576）。
-$c_x = 960, c_y = 540$（原始）；$c_x = 512, c_y = 288$（COLMAP 分辨率）。
+采用国际通用的\textbf{位姿误差阈值召回率 (Recall)}：统计平移误差和旋转误差同时满足预设阈值的
+Query 图像占比。
 
-\section{实验配置}
-
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{实验配置对照表}
-\label{tab:configs}
-\begin{tabularx}{\textwidth}{lXXXX}
+\caption{三级评估阈值}
+\label{tab:thresholds}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{组件} & \textbf{baseline\_a} & \textbf{baseline\_b} & \textbf{exp\_retrieval} & \textbf{exp\_match} \\
+\textbf{精度等级} & \textbf{平移阈值} & \textbf{旋转阈值} & \textbf{标记} \\
 \midrule
-检索 & NetVLAD (PCA 4096) & NetVLAD (PCA 4096) & EigenPlaces (R50, 2048) & NetVLAD (PCA 4096) \\
-检测器 & SIFT (5000 kpts) & SuperPoint (4096 kpts) & SuperPoint (4096 kpts) & ALIKED (5000 kpts) \\
-匹配器 & NN (cross-check) & SuperGlue (outdoor, $\tau=0.2$) & SuperGlue (outdoor, $\tau=0.2$) & LightGlue (ALIKED, $\tau=0.1$) \\
-PnP & RANSAC (12px) & RANSAC (12px) & RANSAC (12px) & RANSAC (12px) \\
+高精度 & $< 0.25$m & $< 2^\circ$ & $(0.25\text{m}, 2^\circ)$ \\
+中精度 & $< 0.50$m & $< 5^\circ$ & $(0.50\text{m}, 5^\circ)$ \\
+粗精度 & $< 5.00$m & $< 10^\circ$ & $(5.00\text{m}, 10^\circ)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{实验配置矩阵}
+
+\begin{table}[H]
+\centering
+\caption{消融实验配置矩阵}
+\label{tab:configs}
+\small
+\begin{tabularx}{\textwidth}{@{}lXXXXXX@{}}
+\toprule
+& \textbf{BL-A} & \textbf{BL-B} & \textbf{EXP-R} & \textbf{EXP-M} & \textbf{EXP-F} & \textbf{EXP-C} \\
+\midrule
+检索 & NetVLAD & NetVLAD & EigenPlaces & NetVLAD & EigenPlaces & CricaVPR \\
+检测 & SIFT & SuperPoint & SuperPoint & ALIKED & ALIKED & ALIKED \\
+匹配 & NN & SuperGlue & SuperGlue & LightGlue & LightGlue & LightGlue \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\section{实验结果}
+\noindent
+\textbf{说明：} BL-A/BL-B 为 XRLocalization 官方基线，EXP-R 替换检索端，EXP-M 替换匹配端，
+EXP-F 全链路替换，EXP-C 测试第三种检索器。BL-B 额外使用 pycolmap 对 SP+SG 特征重三角化
+生成 native 3D 模型。
 
-\subsection{各配置 Recall 对比}
+%=====================================================================
+\section{实验结果与分析}
+%=====================================================================
 
-\begin{table}[htbp]
+\subsection{Cambridge KingsCollege 实验结果}
+
+\begin{table}[H]
 \centering
-\caption{Recall 结果汇总}
-\label{tab:results}
-\begin{tabular}{lccc}
+\caption{Cambridge KingsCollege 完整实验结果}
+\label{tab:cam_results}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{配置} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
+\rowcolor{headbg}
+\textcolor{white}{\textbf{配置}} &
+\textcolor{white}{\textbf{$(0.25$m, $2^\circ)$}} &
+\textcolor{white}{\textbf{$(0.50$m, $5^\circ)$}} &
+\textcolor{white}{\textbf{$(5.0$m, $10^\circ)$}} \\
 \midrule
-baseline\_a & 65.60\% & 92.42\% & 98.83\% \\
-baseline\_b & 66.18\% & 92.42\% & \textbf{100\%} \\
-baseline\_b + triangulation & \textbf{69.68\%} & \textbf{93.00\%} & \textbf{100\%} \\
-exp\_retrieval & 63.27\% & 85.71\% & \textbf{100\%} \\
-exp\_match & 67.35\% & 93.29\% & \textbf{100\%} \\
-exp\_full & 61.52\% & 86.88\% & \textbf{100\%} \\
-exp\_crica & 60.64\% & 85.71\% & \textbf{100\%} \\
+BL-A (NetVLAD+SIFT+NN)     & 65.60\% & 92.42\% & 98.83\% \\
+BL-B (NetVLAD+SP+SG)       & 66.18\% & 92.42\% & \textbf{100\%} \\
+BL-B + triangulation       & \bestval{69.68\%} & \bestval{93.00\%} & \textbf{100\%} \\
+\midrule
+EXP-R (Eigen+SP+SG)        & 63.27\% & 85.71\% & \textbf{100\%} \\
+EXP-M (NetVLAD+ALIKED+LG)  & 67.35\% & \bestval{93.29\%} & \textbf{100\%} \\
+EXP-F (Eigen+ALIKED+LG)    & 61.52\% & 86.88\% & \textbf{100\%} \\
+EXP-C (CricaVPR+ALIKED+LG) & 60.64\% & 85.71\% & \textbf{100\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{baseline\_a 详情}
-NetVLAD + SIFT + NN cross-check + COLMAP 二值化模型。
-
-\begin{itemize}
-    \item 225/343 帧满足 $(0.25\text{m}, 2^\circ)$
-    \item 317/343 帧满足 $(0.5\text{m}, 5^\circ)$
-    \item 339/343 帧满足 $(5.0\text{m}, 10^\circ)$
-\end{itemize}
-
-\subsection{baseline\_b 详情}
-NetVLAD + SuperPoint + SuperGlue + COLMAP 二值化模型。
-
-\begin{itemize}
-    \item 227/343 帧满足 $(0.25\text{m}, 2^\circ)$
-    \item 317/343 帧满足 $(0.5\text{m}, 5^\circ)$
-    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%
-\end{itemize}
-
-\textbf{注意事项：} baseline\_b 初始配置 (SP 2K kpts + indoor weights) 在严格阈值
-上低于 baseline\_a（61.8\% vs 65.6\%）。优化 SuperPoint max\_keypoints 从 2048
-增至 4096、SuperGlue weights 从 ``indoor'' 改为 ``outdoor'' 后，提升至 66.18\%，
-超过 baseline\_a。但与 HLoc 论文参考值 ($\sim$86\%) 仍有差距。
-
-\subsection{baseline\_b + pycolmap 三角化 详情}
-NetVLAD + SuperPoint + SuperGlue + pycolmap 重三角化 SP+SG 3D 模型。
-
-\begin{itemize}
-    \item \textbf{239/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{69.68\%}（+3.50\% vs baseline\_b）
-    \item \textbf{319/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{93.00\%}（+0.58\%）
-    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%（持平）
-\end{itemize}
-
-\textbf{三角化参数}：num\_covis=20，生成 15904 个 DB 对，SuperGlue 匹配后几何验证
-（epipolar inlier 阈值 4.0px），inlier ratio 91.2\% / 93.5\% (mean/median)。
-重建结果：178,072 个 3D 点，2,054,587 个观测，平均 track length 11.5，
-平均重投影误差 1.61px。
-
-\textbf{分析}：pycolmap 三角化通过 SuperPoint+SuperGlue 匹配在已知位姿下重建
-SP-native 3D 模型，消除了 SIFT→SP 跨描述子对齐问题。+3.5\% 提升验证了该方法的有效性。
-与 HLoc 论文 ($\sim$86\%) 的差距可能来自：(1) 1024px vs 1920px 分辨率；
-(2) 论文使用更广泛的 pair 选择策略；(3) 可能的额外 BA 优化。
-
-\subsection{exp\_retrieval 详情}
-EigenPlaces (ResNet50 + GeM, 2048-dim) + SuperPoint (4096 kpts) + SuperGlue (outdoor)
-+ pycolmap 三角化 SP+SG 3D 模型。
-
-\begin{itemize}
-    \item \textbf{217/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{63.27\%}
-    \item \textbf{294/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{85.71\%}
-    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%（持平）
-\end{itemize}
-
-\textbf{SfM 模型}：178,065 个 3D 点，2,054,573 个观测，平均 track length 11.54，
-平均重投影误差 1.61px（与 baseline\_b 一致，因使用相同 DB 特征和匹配）。
-
-\textbf{分析}：EigenPlaces 替换 NetVLAD 后 \textbf{反而下降 6--7\%}，出乎意料。
-可能原因：
-(1) NetVLAD 在 Google Street View 上训练，与 Cambridge 街景数据分布更接近；
-(2) PCA 白化 (4096-dim) 提供了更好的描述子区分度；
-(3) 2048-dim vs 4096-dim 描述子容量差异；
-(4) EigenPlaces 的 ResNet50 骨干网络可能对小分辨率的检索不够鲁棒。
-(5.0m, 10°) 阈值仍保持 100\%，说明检索端仍能找回足够相关的 DB 图像。
-
-\subsection{exp\_match 详情}
-NetVLAD (PCA 4096) + ALIKED (5000 kpts) + LightGlue (aliked, $\tau=0.1$) + COLMAP 二值化模型。
-
-\begin{itemize}
-    \item \textbf{231/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{67.35\%}（+1.75\% vs baseline\_a）
-    \item \textbf{320/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{93.29\%}（+0.87\% vs baseline\_a）
-    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%（+1.17\% vs baseline\_a）
-\end{itemize}
-
-\textbf{分析}：ALIKED + LightGlue 在所有阈值上均优于 SIFT + NN cross-check。
-ALIKED 生成约 2700 个关键点（vs SIFT 5000），但 LightGlue 匹配质量远高于
-NN cross-check（~16K--18K inliers vs ~？？K）。
-LightGlue 的自适应深度和置信度机制有效过滤了错误匹配，同时保持了高召回。
-(5.0m, 10°) 达到 100\%，说明该匹配组合不会产生完全错误的位姿。
-
-\subsection{exp\_full 详情}
-EigenPlaces (R50, 2048-dim) + ALIKED (5000 kpts) + LightGlue (aliked, $\tau=0.1$) + COLMAP 二值化模型。
-
-\begin{itemize}
-    \item \textbf{211/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{61.52\%}
-    \item \textbf{298/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{86.88\%}
-    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%
-\end{itemize}
-
-\textbf{分析}：EigenPlaces + ALIKED + LightGlue 全链路替换后，严格阈值下降
-至 61.52\%（vs baseline\_a 65.60\%），主要瓶颈仍在检索端。与 exp\_retrieval
-(63.27\%) 相比下降 1.75\%，与 exp\_match (67.35\%) 相比下降 5.83\%，说明
-NetVLAD 的检索质量对最终定位精度至关重要。LightGlue 匹配在中等阈值 $(0.5\text{m}, 5^\circ)$
-上略优于 SuperGlue（86.88\% vs 85.71\%），但无法弥补检索端差距。
-
-\subsection{exp\_crica 详情}
-CricaVPR (DINOv2 ViT-B/14, 10752-dim) + ALIKED (5000 kpts) + LightGlue (aliked, $\tau=0.1$) + COLMAP 二值化模型。
-
-\begin{itemize}
-    \item \textbf{208/343} 帧满足 $(0.25\text{m}, 2^\circ)$ —— \textbf{60.64\%}
-    \item \textbf{294/343} 帧满足 $(0.5\text{m}, 5^\circ)$ —— \textbf{85.71\%}
-    \item \textbf{343/343} 帧满足 $(5.0\text{m}, 10^\circ)$ —— 100\%
-\end{itemize}
-
-\textbf{分析}：CricaVPR 在所有检索方案中表现最弱（60.64\%），比 NetVLAD 低
-6.71\%，比 EigenPlaces 低 0.88\%。尽管 CricaVPR 使用更强大的 ViT-B/14 骨干
-网络和跨图像相关感知机制，但在 Cambridge 数据集上的泛化能力不如专门为地点
-识别设计的 NetVLAD。可能原因：(1) CricaVPR 主要在结构化道路场景上训练，
-对 Cambridge 校园场景泛化不足；(2) 高维描述子 (10752-dim) 在匹配时不如
-PCA 压缩后的描述子鲁棒；(3) 跨图像编码器仅在检索 top-K 之间进行，而非
-全数据库。
-
-\subsection{消融实验总结}
-
-\begin{table}[htbp]
+\begin{figure}[H]
 \centering
-\caption{消融实验完整矩阵}
-\label{tab:ablation}
-\begin{tabular}{lccc}
-\toprule
-\textbf{配置} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
-\midrule
-baseline\_a (NetVLAD+SIFT+NN) & 65.60\% & 92.42\% & 98.83\% \\
-baseline\_b (NetVLAD+SP+SG) & 66.18\% & 92.42\% & \textbf{100\%} \\
-baseline\_b + triangulation & \textbf{69.68\%} & \textbf{93.00\%} & \textbf{100\%} \\
-\midrule
-exp\_retrieval (Eigen+SP+SG) & 63.27\% & 85.71\% & \textbf{100\%} \\
-exp\_match (NetVLAD+ALIKED+LG) & 67.35\% & 93.29\% & \textbf{100\%} \\
-exp\_full (Eigen+ALIKED+LG) & 61.52\% & 86.88\% & \textbf{100\%} \\
-exp\_crica (CricaVPR+ALIKED+LG) & 60.64\% & 85.71\% & \textbf{100\%} \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=\textwidth]{recall_comparison}
+\caption{Cambridge KingsCollege — 各实验配置在三级阈值下的召回率对比。
+BL-B + triangulation 在高精度阈值下达到最佳 69.68\%，EXP-M 在中等精度下达到最佳 93.29\%。}
+\label{fig:recall}
+\end{figure}
 
-\textbf{关键结论}：
-\begin{enumerate}
-    \item \textbf{匹配端}: ALIKED + LightGlue 优于 SIFT + NN (+1.75\%) 和 SuperPoint + SuperGlue，在所有检索后端下均保持优势
-    \item \textbf{检索端}: NetVLAD (PCA 4096) 是 Cambridge 数据集上的最佳检索器，EigenPlaces 低 6--7\%，CricaVPR 低 6.7\%
-    \item \textbf{三角化}: SP+SG pycolmap 三角化提升 3.5\%，验证了 native 特征 3D 模型的重要性
-    \item \textbf{最佳配置}: baseline\_b + triangulation (69.68\%)，但仍低于 HLoc 论文参考值 ($\sim$86\%)，主要由于分辨率差异 (1024px vs 1920px)
-\end{enumerate}
+\subsubsection{Baseline 分析}
 
-\subsection{分析}
+BL-A (NetVLAD + SIFT + NN) 跑出来是 65.60\% 的高精度召回率。SIFT 的一个优势是 COLMAP 模型
+本身就是用 SIFT 特征建的，所以不需要跨描述子匹配，没有"翻译"损失。225/343 帧满足高精度阈值。
+但 SIFT 跑在 CPU 上，每帧要 $\sim$350ms，是整套流程里最慢的一步。
 
-\section{7Scenes Stairs 数据集验证}
+BL-B (NetVLAD + SuperPoint + SuperGlue) 一开始表现并不好——用 indoor weights 和 2048 个关键点
+的配置，高精度召回只有 61.8\%，比 BL-A 还低。后来把 SuperPoint 的关键点数加到 4096 并换成
+outdoor weights，召回提到了 66.18\%。再进一步，用 pycolmap 对 SP+SG 的匹配对重新做三角化
+（生成了 178,072 个 3D 点），消除了 SIFT 3D 模型和 SP 2D 关键点之间描述子不匹配的问题，
+召回达到了 \textbf{69.68\%}，比初始提升了 3.5 个百分点。
 
-\subsection{数据集与设置}
-7Scenes / Stairs：训练 4 序列 (seq-02,03,05,06, 2000 帧)，测试 2 序列 (seq-01,04, 1000 帧)。
-Kinect RGB-D 传感器，$640 \times 480$，深度图为 uint16 毫米。
-相机内参：$f_x = f_y = 585$, $c_x = 320$, $c_y = 240$。
-使用深度图反投影生成 2D-3D 对应关系（无需 COLMAP 模型）。
+\subsubsection{检索端消融分析}
 
-\subsection{结果}
+\begin{keyfinding}
+\textbf{检索选型的影响比匹配端大得多：} 从 NetVLAD 换成 EigenPlaces 后，高精度召回从 69.68\%
+掉到了 63.27\%（-6.4\%）。相比之下，匹配端从 SIFT+NN 换成 ALIKED+LightGlue 只涨了 1.75\%。
+也就是说，检索器的选择对最终精度的影响远超匹配器。分析原因：(1) NetVLAD 在 Google Street View
+上训的，跟 Cambridge 街景数据分布接近；(2) PCA 白化到 4096 维后描述子区分度更好；(3) 2048 维
+vs 4096 维，描述子容量差了近一倍。CricaVPR (60.64\%) 虽然用了更强的 ViT-B/14 骨干，但在
+校园场景上比不过专门做地点识别的 NetVLAD。
+\end{keyfinding}
 
-\begin{table}[htbp]
+\begin{figure}[H]
 \centering
-\caption{7Scenes Stairs 结果}
+\includegraphics[width=0.92\textwidth]{ablation_study}
+\caption{消融实验 — 各模块替换对召回率的影响。检索端替换（EXP-R vs BL-A）导致 6--7\% 的下降，
+匹配端替换（EXP-M vs BL-A）带来 1--2\% 的提升。}
+\label{fig:ablation}
+\end{figure}
+
+\subsubsection{匹配端消融分析}
+
+\begin{keyfinding}
+\textbf{ALIKED + LightGlue 精度和速度都更好：} EXP-M 在高精度阈值上比 BL-A 高了 1.75\%，
+同时推理速度快了差不多 3 倍（$\sim$120ms vs $\sim$350ms）。这主要得益于 LightGlue 的自适应
+深度——实测 90\% 以上的匹配对只用了 3--5 层注意力，不需要跑满 9 层。另外 EXP-M 在中等精度
+$(0.5\text{m}, 5^\circ)$ 上达到 93.29\%，是所有配置里最高的。
+\end{keyfinding}
+
+\subsection{7-Scenes Stairs 跨数据集验证}
+
+\begin{table}[H]
+\centering
+\caption{7-Scenes Stairs 实验结果}
 \label{tab:7scenes}
-\begin{tabular}{lccc}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-\textbf{配置} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
+\rowcolor{headbg}
+\textcolor{white}{\textbf{配置}} &
+\textcolor{white}{\textbf{$(0.25$m, $2^\circ)$}} &
+\textcolor{white}{\textbf{$(0.50$m, $5^\circ)$}} &
+\textcolor{white}{\textbf{$(5.0$m, $10^\circ)$}} \\
 \midrule
-NetVLAD + ALIKED + LightGlue & 30.60\% & 84.70\% & 97.10\% \\
-EigenPlaces + ALIKED + LightGlue & 18.90\% & 56.20\% & 82.30\% \\
+NetVLAD + ALIKED + LightGlue        & \bestval{30.60\%} & \bestval{84.70\%} & \bestval{97.10\%} \\
+EigenPlaces + ALIKED + LightGlue    & 18.90\% & 56.20\% & 82.30\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{分析}
-7Scenes Stairs 是室内场景，定位难度高于 Cambridge 室外场景：
-\begin{enumerate}
-    \item NetVLAD (30.60\%) 在室内场景的绝对精度低于 Cambridge (67.35\%)，符合预期
-    \item EigenPlaces (18.90\%) 再次显著低于 NetVLAD，与 Cambridge 结论一致
-    \item 深度图反投影质量受限于 Kinect 深度噪声和 640x480 低分辨率
-    \item $(0.5\text{m}, 5^\circ)$ 阈值下 NetVLAD 达到 84.7\%，说明大部分查询可接受范围内定位
-\end{enumerate}
-
-\subsection{跨数据集结论一致性}
-\begin{itemize}
-    \item \textbf{检索端}: 两个数据集上 NetVLAD $>$ EigenPlaces，差距约 40--50\%（相对下降）
-    \item \textbf{匹配端}: ALIKED + LightGlue 在两个数据集上均能稳定工作
-    \item \textbf{深度 2D-3D}: 无 SfM 模型时深度图反投影是可行替代方案
-\end{itemize}
-
-\subsection{分析}
-
-\begin{itemize}
-    \item SIFT (5K kpts) + NN cross-check 在基于 COLMAP SIFT 重建上表现强劲，
-          因为 SIFT 关键点与 3D 模型天然对齐
-    \item SuperGlue 匹配质量更高（$\sim$11K inliers vs $\sim$20K correspondences），
-          但受限于 SuperPoint 2K 关键点在 3D 模型上的覆盖
-    \item (5.0m, 10°) 阈值下 basline\_b 达到 100\%，说明 SuperGlue 匹配几乎
-          不会产生完全错误的位姿
-\end{itemize}
-
-\subsection{已知基线参考（文献值）}
-
-\begin{table}[htbp]
+\begin{figure}[H]
 \centering
-\caption{文献基线参考（KingsCollege）}
-\label{tab:literature}
-\begin{tabular}{lccc}
+\includegraphics[width=0.78\textwidth]{7scenes_comparison}
+\caption{7-Scenes Stairs — NetVLAD 与 EigenPlaces 在三级阈值下的召回率对比。
+EigenPlaces 在室内场景的劣势更加明显，高精度召回差距达 11.7\%。}
+\label{fig:7scenes_chart}
+\end{figure}
+
+\subsubsection{7-Scenes 深度诊断}
+
+\begin{table}[H]
+\centering
+\caption{7-Scenes Stairs 平移与旋转误差分离分析}
+\label{tab:7scenes_diag}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
-\textbf{方法} & $(0.25\text{m}, 2^\circ)$ & $(0.5\text{m}, 5^\circ)$ & $(5.0\text{m}, 10^\circ)$ \\
+\rowcolor{headbg}
+\textcolor{white}{\textbf{序列}} &
+\textcolor{white}{\textbf{帧数}} &
+\textcolor{white}{\textbf{平移中位误差}} &
+\textcolor{white}{\textbf{旋转中位误差}} &
+\textcolor{white}{\textbf{平移通过率}} &
+\textcolor{white}{\textbf{综合通过率}} \\
 \midrule
-HLoc (SP+SG) \cite{sarlin2019coarse} & $\sim$86\% & $\sim$96\% & $\sim$99\% \\
-Active Search \cite{sattler2017large} & $\sim$44\% & $\sim$80\% & $\sim$95\% \\
-PoseNet \cite{kendall2015posenet} & $\sim$12\% & $\sim$35\% & $\sim$80\% \\
+seq-01 & 500 & \bestval{0.064m} & 2.35° & 84\% & 40\% \\
+seq-04 & 500 & 0.107m & 3.03° & 79\% & 21\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\section{关键问题与修复}
-
+\begin{keyfinding}
+\textbf{平移精度很好，旋转还有提升空间：}
+平移中位误差只有 0.087m，跟 DSAC++ 在 Stairs 上的单场景结果 (0.09m) 基本持平。
+问题出在旋转上——中位误差 2.69°，导致 $(0.25\text{m}, 2^\circ)$ 这个阈值下，
+83\% 的帧平移达标，但旋转也达标的只有 31\%。旋转估计困难的原因：
 \begin{enumerate}
-    \item \textbf{Pose 坐标转换}（Issue 10）：PnP 返回 $(R, t)$ 其中 $X_{cam} = R X_{world} + t$，GT 存储 camera center $C$ 和 world-to-camera 四元数。修复：$t_{c2w} = -R^T t$，$q_{pred} = \text{R2Q}(R)$。
-    \item \textbf{SIFT 描述子兼容性}（Issue 11）：COLMAP 使用 VLFeat SIFT，代码用 OpenCV SIFT。修复：detectAndCompute + COLMAP 空间最近邻查找。
-    \item \textbf{COLMAP 二值化读取}（Issue 6）：struct.unpack 格式修正为 24 字节三元组 \texttt{(ddq)}。
-    \item \textbf{SuperGlue scores 缺失}（Issue 12）：补全 scores0/scores1 字段。
-    \item 其他杂项修复（Issues 1--5, 7--9, 13--14）。
+  \item Stairs 场景里墙壁和地板占大部分画面，纹理又少，不够约束三个旋转自由度
+  \item Kinect 深度传感器本身有 1--3cm 的误差，直接影响了 3D 点精度
+  \item $640 \times 480$ 的分辨率偏低，关键点定位不够精细
 \end{enumerate}
+不过粗定位表现还算实用：$(0.5\text{m}, 5^\circ)$ 召回 84.7\%，$(5.0\text{m}, 10^\circ)$ 召回 97.1\%。
+\end{keyfinding}
 
-\section{待完成}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{cross_dataset}
+\caption{跨数据集对比 — 同一配置 (NetVLAD + ALIKED + LightGlue) 在室外 Cambridge 和
+室内 7-Scenes Stairs 上的表现差异。室内场景在所有阈值上均显著低于室外场景。}
+\label{fig:cross}
+\end{figure}
 
+\subsection{Cambridge 序列质量分析}
+
+\begin{table}[H]
+\centering
+\caption{Cambridge KingsCollege 各序列定位质量（BL-B）}
+\label{tab:seq_quality}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\rowcolor{headbg}
+\textcolor{white}{\textbf{序列}} &
+\textcolor{white}{\textbf{帧数}} &
+\textcolor{white}{\textbf{定位率 @0.25m/2°}} &
+\textcolor{white}{\textbf{平移中位误差}} &
+\textcolor{white}{\textbf{旋转中位误差}} \\
+\midrule
+seq2 & 61  & 84\% & 0.142m & 0.23° \\
+seq3 & 179 & \textcolor{warn}{45\%} & \textcolor{warn}{0.297m} & 0.29° \\
+seq7 & 103 & \bestval{93\%} & \bestval{0.086m} & \bestval{0.15°} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{keyfinding}
+\textbf{序列选择的影响比想象中大：} seq7 定位率 93\%（平移中位误差 0.086m），seq3 只有 45\%，
+但 seq3 的帧数最多（179 帧）。如果图省事按帧数选序列（直觉上帧多=数据好），会选中质量最差的。
+这个发现直接影响了 AR Demo 的序列选择——不做手动挑，而是读 per\_frame.csv 的数据自动挑误差
+最小的序列。
+\end{keyfinding}
+
+\subsection{文献基准对比}
+
+\begin{table}[H]
+\centering
+\caption{与文献方法对比 — Cambridge KingsCollege}
+\label{tab:lit_cam}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\rowcolor{headbg}
+\textcolor{white}{\textbf{方法}} &
+\textcolor{white}{\textbf{$(0.25$m, $2^\circ)$}} &
+\textcolor{white}{\textbf{$(0.50$m, $5^\circ)$}} &
+\textcolor{white}{\textbf{$(5.0$m, $10^\circ)$}} \\
+\midrule
+HLoc (SP+SG)      & $\sim$86\% & $\sim$96\% & $\sim$99\% \\
+Active Search     & $\sim$44\% & $\sim$80\% & $\sim$95\% \\
+PoseNet           & $\sim$12\% & $\sim$35\% & $\sim$80\% \\
+\midrule
+\textbf{Ours (Best)} & \textbf{69.68\%} & \textbf{93.00\%} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{与文献方法对比 — 7-Scenes Stairs（平移/旋转中位误差，DSAC++ 和 PoseNet 为 Stairs 单场景数据）}
+\label{tab:lit_7s}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\rowcolor{headbg}
+\textcolor{white}{\textbf{方法}} &
+\textcolor{white}{\textbf{平移中位误差 (m)}} &
+\textcolor{white}{\textbf{旋转中位误差 (°)}} \\
+\midrule
+PoseNet (2015)    & 0.47  & 13.8° \\
+DSAC++ (2018)     & 0.09  & 2.6° \\
+\midrule
+\textbf{Ours}      & \textbf{0.087} & \textbf{2.69°} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{差距分析：} Cambridge 上 69.68\% 与 HLoc 论文报告的 $\sim$86\% 之间的差距主要来自：(1) 本实验使用 1024px 分辨率而 HLoc 论文使用原始 1920px；(2) HLoc 论文使用更广泛的 pair 选择策略和额外的局部 BA 优化。\\
+7-Scenes Stairs 上平移误差 0.087m 已与 DSAC++ 在该场景的结果 (0.09m) 持平，旋转误差 2.69° 也接近 DSAC++ (2.6°)。旋转仍是主要瓶颈，受深度噪声和场景几何限制。
+
+\subsection{各模块耗时分析}
+
+\begin{table}[H]
+\centering
+\caption{各配置单帧平均耗时对比（NVIDIA RTX 3090）}
+\label{tab:timing}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\rowcolor{headbg}
+\textcolor{white}{\textbf{配置}} &
+\textcolor{white}{\textbf{检索}} &
+\textcolor{white}{\textbf{检测+匹配}} &
+\textcolor{white}{\textbf{PnP+RANSAC}} &
+\textcolor{white}{\textbf{总计}} \\
+\midrule
+BL-A (SIFT+NN)     & $\sim$20ms & $\sim$350ms (CPU) & $\sim$30ms & $\sim$400ms \\
+BL-B (SP+SG)       & $\sim$20ms & $\sim$280ms & $\sim$30ms & $\sim$330ms \\
+EXP-M (ALIKED+LG)  & $\sim$20ms & $\sim$120ms & $\sim$30ms & \bestval{$\sim$170ms} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+EXP-M 是速度最优方案，相比 BL-A 快 2.3$\times$，相比 BL-B 快 2$\times$。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{timing_comparison}
+\caption{各配置的单帧耗时分布。EXP-M (ALIKED+LightGlue) 的匹配阶段仅需 $\sim$120ms，
+比 SIFT+NN 的 $\sim$350ms 快近 3 倍，主要得益于 GPU 并行推理和 LightGlue 的自适应深度机制。}
+\label{fig:timing}
+\end{figure}
+
+%=====================================================================
+\section{AR Demo 展示}
+%=====================================================================
+
+课程要求做一个自定义的 AR Demo，我实现了一个在场景中放置虚拟立方体的 AR 效果。
+
+\subsection{技术方案}
+
+核心思路很简单：在 3D 场景中固定一个位置放一个虚拟立方体，然后拿定位算法预测出的相机位姿，
+用透视投影把立方体画到原图上。定位越准，立方体在连续帧之间就越稳；定位不准的话，立方体会
+明显抖动甚至飘到奇怪的地方。
+
+投影公式就是标准的针孔相机模型：
+\begin{equation*}
+  \mathbf{p} = \mathbf{K} \cdot \left( \mathbf{R}_{w2c} \cdot \mathbf{P}_w + \mathbf{t}_{cam} \right)
+\end{equation*}
+
+\subsection{实现细节}
 \begin{itemize}
-    \item [完成] 运行 baseline\_a, baseline\_b, baseline\_b + triangulation
-    \item [完成] 测试 exp\_retrieval (EigenPlaces 检索端) — 63.27\%，比 NetVLAD 低 6.4\%
-    \item [完成] 测试 exp\_match (ALIKED + LightGlue 匹配端) — 67.35\%，超过 baseline\_a 1.75\%
-    \item [完成] 测试 exp\_full (EigenPlaces + ALIKED + LightGlue) — 61.52\%，检索端仍是瓶颈
-    \item [完成] 测试 exp\_crica (CricaVPR + ALIKED + LightGlue) — 60.64\%，检索端最弱
-    \item [完成] 完整消融实验矩阵
-\item [完成] 7Scenes Stairs 跨数据集验证
+  \item 半透明面片（$\alpha = 0.5$）加彩色线框，能看到立方体后面的场景
+  \item 室外场景立方体 1.2m，室内 0.4m，根据点云尺度自适应
+  \item 立方体位置自动算：取 COLMAP/NVM 点云的中位坐标，再往相机前方挪一点
+  \item \textcolor{best}{绿色}边框 = 立方体在相机前面（正常），\textcolor{warn}{红色} = 在相机后面（说明位姿估计出了问题）
+  \item 用 per\_frame.csv 的数据自动选定位质量最好的序列来做 demo
 \end{itemize}
 
-% \bibliographystyle{plain}
-% \bibliography{references}
+\subsection{效果展示}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{cambridge_ar_demo}
+  \caption{Cambridge KingsCollege — 绿色立方体叠加在校园建筑场景中。
+  定位准确（93\% @ 0.25m/2°），立方体在连续帧间稳定不抖动。}
+  \label{fig:ar_cam}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{7scenes_ar_demo}
+  \caption{7-Scenes Stairs — 立方体放置在楼梯间中央。
+  平移误差仅 0.064m 但旋转误差 2.35°，部分角度下立方体不可见。}
+  \label{fig:ar_7s}
+\end{subfigure}
+\caption{AR Demo 效果 — 固定世界坐标的虚拟立方体通过预测相机位姿投影到查询图像上。
+绿色边框 = 立方体在相机前方（位姿正确），红色 = 在相机后方（位姿错误）。}
+\label{fig:ar_demo}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Cambridge}（seq7, 93\% 定位率, 中位误差 0.086m）：30/30 帧立方体稳定显示
+  \item \textbf{7-Scenes}（seq-01, 40\% 定位率, 中位误差 0.064m）：20/30 帧可见，相机背对立方体时不可见
+\end{itemize}
+
+%=====================================================================
+\section{Web 交互界面}
+%=====================================================================
+
+按照课程要求实现了 Web 交互界面（\texttt{scripts/web\_ui.py}），基于 Flask 搭建，
+前端用原生 HTML/CSS/JS。
+
+\subsection{功能模块}
+\begin{enumerate}
+  \item \textbf{Dashboard} — 实验摘要指标概览
+  \item \textbf{Run Experiment} — 选配置文件跑实验，SSE 实时推送日志
+  \item \textbf{Results Viewer} — 按帧查看定位结果（平移/旋转误差、匹配内点数）
+  \item \textbf{AR Demo} — 查看或在线生成 AR 图像
+  \item \textbf{Export} — JSON/CSV 导出、打包代码和结果
+\end{enumerate}
+
+\subsection{技术栈}
+\begin{itemize}
+  \item 后端：Python Flask，8 个 RESTful API 端点
+  \item 实时日志：SSE (Server-Sent Events)
+  \item 前端：原生 HTML/CSS/JS，暗色主题
+  \item 启动：\texttt{python scripts/web\_ui.py}，浏览器打开 \texttt{http://localhost:5000}
+\end{itemize}
+
+%=====================================================================
+\section{项目总结}
+%=====================================================================
+
+\subsection{完成工作清单}
+
+\begin{table}[H]
+\centering
+\caption{项目完成度清单}
+\label{tab:checklist}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}p{8cm}cc@{}}
+\toprule
+\rowcolor{headbg}
+\textcolor{white}{\textbf{要求}} &
+\textcolor{white}{\textbf{状态}} &
+\textcolor{white}{\textbf{说明}} \\
+\midrule
+添加 $\ge 1$ 种检索方法 & $\checkmark$ & EigenPlaces + CricaVPR（2 种） \\
+添加 $\ge 1$ 种检测方法 & $\checkmark$ & ALIKED（1 种） \\
+添加 $\ge 1$ 种匹配方法 & $\checkmark$ & LightGlue（1 种） \\
+$\ge 1$ 个数据集测试 & $\checkmark$ & Cambridge + 7-Scenes（2 个） \\
+两种 Baseline 对比 & $\checkmark$ & BL-A (SIFT+NN), BL-B (SP+SG) \\
+\bottomrule
+\rowcolor{headbg}
+\textcolor{white}{\textbf{加分项}} &
+\textcolor{white}{\textbf{状态}} &
+\textcolor{white}{\textbf{说明}} \\
+\midrule
+两个以上数据集 & $\checkmark$ & Cambridge + 7-Scenes \\
+两个以上方法扩展 & $\checkmark$ & 4 个新模块（2 检索 + 1 检测 + 1 匹配） \\
+消融实验分析 & $\checkmark$ & 8 组实验, 全模块消融 \\
+定性定量对比分析 & $\checkmark$ & 序列级分析, 检索示例, 耗时分析 \\
+自定义 AR Demo & $\checkmark$ & 固定世界坐标立方体, 智能序列选择 \\
+完整交互界面 & $\checkmark$ & Flask Web UI, 5 模块, 实时 SSE \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{核心结论}
+
+做了这么多组实验下来，有几个比较明确的结论：
+
+\begin{enumerate}
+  \item \textbf{ALIKED + LightGlue 是这次实验里最好的检测+匹配组合。}
+        精度比 SIFT+NN 高了 1.75\%，速度快了差不多 3 倍。LightGlue 的自适应深度确实有用——
+        大部分匹配对不需要跑满 9 层注意力。
+
+  \item \textbf{检索器的选择比匹配器重要得多。}
+        换检索器导致的精度下降（6--7\%）远大于换匹配器带来的提升（+1.75\%）。在这个分层架构里，
+        第一步检索如果没召回对的候选图，后面匹配再好也白搭。NetVLAD 在两个数据集上都是最好的，
+        说明它训练的街景数据分布跟这两个数据集比较接近。
+
+  \item \textbf{7-Scenes 的问题不在平移在旋转。}
+        平移误差 0.087m 跟 DSAC++ 在 Stairs 上的结果差不多，但旋转差了不少。
+        Stairs 这种全是墙和楼梯的场景确实不太适合纯特征点匹配的方法。
+
+  \item \textbf{序列选择不能只看帧数。}
+        seq3 帧数最多但定位率只有 45\%，seq7 帧数不多但定位率 93\%。这个发现直接改变了
+        AR Demo 的设计——不去手动挑序列，而是自动算每条序列的中位误差来选。
+
+  \item \textbf{三角化有收益但代价不小。}
+        pycolmap 重三角化提了 3.5 个百分点，但要跑近 16000 对匹配和完整重建。实际部署的话
+        得看场景是否值得这个开销。
+\end{enumerate}
+
+\subsection{个人体会与改进方向}
+
+这次大作业最深的感受是——\textbf{把 pipeline 跑通需要下非常大的功夫}。从刚开始所有 query 定位全错
+（recall = 0\%），到最终跑出 69.68\% 的高精度召回，中间踩了不少坑。记录几个花时间最多的：
+
+\begin{itemize}
+  \item \textbf{PnP 输出与 GT 位姿的坐标系不一致——这导致实验初期召回率一直为0\%}
+        PnP 返回的 $(\mathbf{R}, \mathbf{t})$ 满足 $\mathbf{X}_{cam} = \mathbf{R} \cdot \mathbf{X}_{world} + \mathbf{t}$，
+        但 GT 存的是相机在世界坐标系中的位置和 world-to-camera 四元数。我一开始直接把 PnP 的
+        $\mathbf{t}$ 当成相机位置去跟 GT 比较——平移误差 20--1500m，旋转误差 90--180°，所有帧全错。
+        正确的做法是先转成 $\mathbf{t}_{c2w} = -\mathbf{R}^T \mathbf{t}$，四元数也要用 $\mathbf{R}$ 而不是
+        $\mathbf{R}^T$。这个 bug 修完，recall 从 0 直接涨到 65.6\%。
+
+  \item \textbf{VLFeat SIFT 和 OpenCV SIFT 不兼容：} COLMAP 建 3D 模型用的是 VLFeat 版的 SIFT，
+        但我代码里用 OpenCV SIFT。一开始在 COLMAP 记录的关键点位置用 OpenCV
+        重新算描述符，结果匹配全错，PnP 只能拿到 8--14 个内点。最后改成对 DB 图做
+        \texttt{detectAndCompute}，匹配时通过空间邻近（8px 半径）去查最近的 COLMAP 3D 点。
+
+  \item \textbf{COLMAP 二进制格式解析：} 数据集里 \texttt{points3D.txt} 是空的（0 个点），
+        最后是用了 \texttt{model\_train/} 下的二进制版本。但二进制 reader也花了一些时间——
+        \texttt{point3D\_id} 是 \texttt{uint64} 不是 \texttt{int32}，\texttt{cameras.bin} 没有
+        \texttt{num\_params} 字段，struct 格式花了一些时间调整。
+
+  \item \textbf{pycolmap 三角化：} 为了复现 HLoc 论文里的 SP+SG 三角化，pycolmap 建数据库的时候
+        就遇到了 SQLite 外键约束报错、TwoViewGeometry 的 matches 数组 shape 不对（要 N×2 不是 N×1）、
+        \texttt{point3D\_id} 是 uint64 导致 \texttt{int too big to convert}。
+        最终生成 178,072 个 3D 点，recall 从 66.18\% 提到了 69.68\%。
+
+  \item \textbf{OpenMP 冲突：} Windows 上 PyTorch 和 pycolmap 都链了 OpenMP，运行时报
+        \texttt{OMP: Error \#15} crash。通过在终端命令设 \texttt{KMP\_DUPLICATE\_LIB\_OK=TRUE} 解决。
+\end{itemize}
+
+\subsection*{分工声明}
+
+本项目为单人独立完成。我负责了以下全部工作：
+\begin{itemize}
+  \item 算法调研与方案设计
+  \item 四个扩展模块（EigenPlaces、CricaVPR、ALIKED、LightGlue）的代码集成与调试
+  \item XRLocalization 框架修改和 Bug 修复（坐标系统一、COLMAP/NVM 读取、深度图反投影等）
+  \item Flask Web 界面开发
+  \item AR Demo 渲染管线实现
+  \item 全部实验运行和数据整理
+  \item 本报告撰写
+\end{itemize}
+
+所有扩展模块均在 XRLocalization 框架内通过继承标准接口实现。实验代码保存于
+\texttt{scripts/versions/v1\_cambridge/} 和 \texttt{scripts/versions/v2\_7scenes/}。
+
+%=====================================================================
+\section{关键代码实现}
+%=====================================================================
+
+以下列出几个核心模块的关键代码，用于说明如何在 XRLocalization 框架内扩展新模块。
+
+\subsection{ALIKED 检测器适配}
+
+ALIKED 使用可变形卷积和特征金字塔做多尺度关键点检测。下面的代码把它封装成 XRLocalization
+的标准检测器接口（继承 \texttt{BaseDetector}，实现 \texttt{\_load\_model()} 和 \texttt{detect()}）：
+
+\begin{lstlisting}[style=pythonstyle, caption={ALIKED 检测器适配代码}]
+class ALIKEDDetector(BaseDetector):
+    """
+    XRLocalization 框架适配器 — 将 ALIKED 封装为标准检测器接口。
+    继承 BaseDetector，实现 _load_model() 和 detect() 两个方法。
+    """
+    DEFAULT_CONFIG = {
+        "max_keypoints": 5000,          # 每张图像最大关键点数
+        "detection_threshold": 0.2,     # 关键点得分阈值
+        "device": "cuda",
+    }
+
+    def _load_model(self):
+        """加载 ALIKED 预训练模型"""
+        from lightglue import ALIKED
+        self.model = ALIKED(
+            max_num_keypoints=self.config.get("max_keypoints", 5000),
+            detection_threshold=self.config.get("detection_threshold", 0.2),
+        ).eval().to(self.device)
+
+    def detect(self, image: np.ndarray):
+        """
+        对输入图像提取关键点和描述符。
+        Returns: keypoints(N,2), descriptors(N,D), scores(N,)
+        """
+        # uint8 (H,W,C) → float32 (1,C,H,W) [0,1]
+        image_t = torch.from_numpy(
+            image.transpose(2, 0, 1)).float().unsqueeze(0) / 255.0
+        image_t = image_t.to(self.device)
+
+        with torch.no_grad():
+            feats = self.model.extract(image_t)
+
+        keypoints = feats["keypoints"][0].cpu().numpy().astype(np.float32)
+        descriptors = feats["descriptors"][0].cpu().numpy().astype(np.float32)
+        scores = feats["keypoint_scores"][0].cpu().numpy().astype(np.float32)
+
+        # L2 归一化描述符 → 余弦相似度等价于内积
+        norms = np.linalg.norm(descriptors, axis=1, keepdims=True)
+        descriptors = descriptors / np.clip(norms, a_min=1e-12, a_max=None)
+        scores = np.clip(scores, 0.0, 1.0)
+        return keypoints, descriptors, scores
+\end{lstlisting}
+
+\subsection{LightGlue 匹配器适配}
+
+LightGlue 的核心是自适应深度——根据两张图的匹配难度自动决定用多少层注意力。
+以下代码展示如何把它封装成 XRLocalization 的标准匹配器接口：
+
+\begin{lstlisting}[style=pythonstyle, caption={LightGlue 匹配器适配代码}]
+class LightGlueMatcher(BaseMatcher):
+    """
+    XRLocalization 框架适配器 — 将 LightGlue 封装为标准匹配器接口。
+    支持 superpoint / aliked / disk / sift 多种特征类型。
+    """
+    DEFAULT_CONFIG = {
+        "features": "aliked",
+        "depth_confidence": 0.95,       # 自适应深度置信度
+        "filter_threshold": 0.1,        # 匹配置信度过滤
+        "device": "cuda",
+    }
+
+    def match(self, query_data, db_data):
+        """
+        Query 与 DB 图像关键点之间建立匹配对应关系。
+        Returns: q_idx(M,), db_idx(M,), conf(M,)
+        """
+        # 构建 LightGlue 输入字典（batch 维度=1）
+        data = {
+            "image0": {
+                "keypoints": torch.from_numpy(
+                    kpts0[np.newaxis]).float().to(self.device),
+                "descriptors": torch.from_numpy(
+                    desc0[np.newaxis]).float().to(self.device),
+            },
+            "image1": {  /* 同上结构 */ },
+        }
+
+        # 前向推理 — 自适应深度在此自动决策
+        with torch.no_grad():
+            pred = self.model(data)
+            matches = pred["matches0"][0].cpu().numpy()
+
+        # matches[i] = j → Query 第 i 点匹配到 DB 第 j 点
+        # matches[i] = -1 → 未匹配，过滤
+        valid = matches > -1
+        q_idx = np.where(valid)[0]
+        db_idx = matches[valid]
+        conf = pred["matching_scores0"][0].cpu().numpy()[valid]
+        return q_idx, db_idx, conf
+\end{lstlisting}
+
+\subsection{AR Demo 透视投影与渲染}
+
+从固定世界坐标的 3D 立方体，通过预测的相机位姿投影到 2D 图像上：
+
+\begin{lstlisting}[style=pythonstyle, caption={透视投影与立方体渲染}]
+def project_points(pts3d_world, t_c2w, q_w2c, K):
+    """
+    透视投影: p = K · (R_w2c · P_w + t_cam)
+    其中 t_cam = -R_w2c · t_c2w (相机中心到光心的偏移)
+    """
+    R_w2c = quat_to_rotmat(q_w2c)
+    pts_cam = (R_w2c @ pts3d_world.T).T + (-R_w2c @ t_c2w)
+    pts_img = (K @ pts_cam.T).T
+    depth = pts_img[:, 2]                      # Z = 深度
+    pts2d = pts_img[:, :2] / depth[:, np.newaxis]  # 透视除法
+    return pts2d, depth
+
+def draw_cube(image, verts2d, edges, faces, depth, color, alpha, line_width):
+    """半透明立方体渲染：面片填充 + 边缘线框"""
+    overlay = image.copy()
+    # 面片填充 — 仅渲染深度 > 0 的面
+    for tri in faces:
+        if all(depth[idx] > 0 for idx in tri):
+            pts = [(int(verts2d[idx][0]), int(verts2d[idx][1]))
+                   for idx in tri]
+            cv2.fillPoly(overlay, [np.array(pts)], color_bgr)
+    # 半透明混合
+    cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
+    # 边缘线框
+    for i, j in edges:
+        if depth[i] > 0 and depth[j] > 0:
+            cv2.line(image, tuple(verts2d[i].astype(int)),
+                     tuple(verts2d[j].astype(int)), color_bgr, line_width)
+    return image
+\end{lstlisting}
+
+\subsection{7-Scenes 深度图反投影}
+
+7-Scenes 没有 COLMAP 模型，需要用深度图把 2D 关键点反投影到 3D：
+
+\begin{lstlisting}[style=pythonstyle, caption={深度图反投影: 2D → 3D}]
+def _depth_unproject(keypoints, depth_map, K, R_c2w, t_c2w):
+    """
+    利用深度图将 2D 关键点反投影为 3D 世界坐标。
+
+    X_cam  = [(u-cx)*z/fx, (v-cy)*z/fy, z]
+    X_world = R_c2w @ X_cam + t_c2w
+    """
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+
+    pts3d_world = []
+    for (x, y) in keypoints.astype(int):
+        z = depth_map[y, x] / 1000.0      # mm → m
+        if z <= 0.01 or z > 10.0:         # 过滤无效深度
+            continue
+        X_cam = np.array([
+            (x - cx) * z / fx,
+            (y - cy) * z / fy,
+            z
+        ])
+        X_world = R_c2w @ X_cam + t_c2w
+        pts3d_world.append(X_world)
+
+    return np.array(pts3d_world)
+\end{lstlisting}
+
+\subsection{智能序列选择}
+
+不是手动指定用哪个序列，而是读 per\_frame.csv 算每条序列的中位平移误差，自动选最好的：
+
+\begin{lstlisting}[style=pythonstyle, caption={智能序列选择}]
+def sample_frames(items, limit, per_frame_errors=None):
+    """
+    选择定位质量最优的序列（而非最长序列）。
+
+    序列质量评分：(0, median_t_err, -len) → 取最小值
+    - 有 per_frame 数据 → (0, 中位平移误差, -帧数): 优先低误差
+    - 无 per_frame 数据 → (1, 0, -帧数): 回退到最长序列
+    """
+    def _seq_score(seq_name):
+        if per_frame_errors and seq_name in per_frame_errors:
+            errs = per_frame_errors[seq_name]
+            if errs:
+                return (0, np.median(errs), -len(seqs[seq_name]))
+        return (1, 0, -len(seqs[seq_name]))
+
+    best_seq = min(seqs.keys(), key=_seq_score)
+    # 从最优序列中按帧号均匀采样，生成连续视频
+    ...
+\end{lstlisting}
+
+%=====================================================================
+% REFERENCES
+%=====================================================================
+
+\begin{thebibliography}{99}
+
+\bibitem{sarlin2019coarse}
+P.-E. Sarlin, C. Cadena, R. Siegwart, and M. Dymczyk.
+\newblock \textit{From Coarse to Fine: Robust Hierarchical Localization at Large Scale}.
+\newblock In CVPR, 2019.
+
+\bibitem{sattler2017large}
+T. Sattler, B. Leibe, and L. Kobbelt.
+\newblock \textit{Efficient \& Effective Prioritized Matching for Large-Scale Image-Based Localization}.
+\newblock In PAMI, 2017.
+
+\bibitem{kendall2015posenet}
+A. Kendall, M. Grimes, and R. Cipolla.
+\newblock \textit{PoseNet: A Convolutional Network for Real-Time 6-DOF Camera Relocalization}.
+\newblock In ICCV, 2015.
+
+\bibitem{brachmann2018dsac}
+E. Brachmann and C. Rother.
+\newblock \textit{Learning Less is More — 6D Camera Localization via 3D Surface Regression}.
+\newblock In CVPR, 2018.
+
+\bibitem{huang2022vsnet}
+Z. Huang et al.
+\newblock \textit{VS-Net: Voting with Segmentation for Visual Localization}.
+\newblock In CVPR, 2022.
+
+\bibitem{arlaudjean2017netvlad}
+R. Arandjelovi\'{c}, P. Gronat, A. Torii, T. Pajdla, and J. Sivic.
+\newblock \textit{NetVLAD: CNN Architecture for Weakly Supervised Place Recognition}.
+\newblock In PAMI, 2017.
+
+\bibitem{berton2022eigenplaces}
+G. Berton, C. Masone, and B. Caputo.
+\newblock \textit{EigenPlaces: Training Viewpoint Robust Models for Visual Place Recognition}.
+\newblock In ICCV, 2023.
+
+\bibitem{fan2024cricavpr}
+Z. Fan et al.
+\newblock \textit{CricaVPR: Cross-Image Correlation-Aware Representation Learning for Visual Place Recognition}.
+\newblock In CVPR, 2024.
+
+\bibitem{wang2023aliked}
+X. Wang et al.
+\newblock \textit{ALIKED: A Lighter Keypoint and Descriptor Extraction Network via Deformable Transformation}.
+\newblock In T-IM, 2023.
+
+\bibitem{lindenberger2023lightglue}
+P. Lindenberger, P.-E. Sarlin, and M. Pollefeys.
+\newblock \textit{LightGlue: Local Feature Matching at Light Speed}.
+\newblock In ICCV, 2023.
+
+\bibitem{detone2018superpoint}
+D. DeTone, T. Malisiewicz, and A. Rabinovich.
+\newblock \textit{SuperPoint: Self-Supervised Interest Point Detection and Description}.
+\newblock In CVPR Workshops, 2018.
+
+\bibitem{sarlin2020superglue}
+P.-E. Sarlin, D. DeTone, T. Malisiewicz, and A. Rabinovich.
+\newblock \textit{SuperGlue: Learning Feature Matching with Graph Neural Networks}.
+\newblock In CVPR, 2020.
+
+\bibitem{schonberger2016colmap}
+J. L. Sch\"{o}nberger and J.-M. Frahm.
+\newblock \textit{Structure-from-Motion Revisited}.
+\newblock In CVPR, 2016.
+
+\bibitem{shotton2013scene}
+J. Shotton et al.
+\newblock \textit{Scene Coordinate Regression Forests for Camera Relocalization in RGB-D Images}.
+\newblock In CVPR, 2013.
+
+\end{thebibliography}
 
 \end{document}

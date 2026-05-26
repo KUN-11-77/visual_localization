@@ -21,10 +21,10 @@ class SuperPointDetector(BaseDetector):
         import torch
         from pathlib import Path
 
-        sp_dir = str(Path(__file__).resolve().parents[2] / "third_party" / "SuperGluePretrainedNetwork")
+        sp_dir = str(Path(__file__).resolve().parents[2] / "vendor" / "superglue")
         if sp_dir not in sys.path:
             sys.path.insert(0, sp_dir)
-        from models.superpoint import SuperPoint
+        from superpoint import SuperPoint
 
         self.config_sp = {
             "max_keypoints": self.config.get("max_keypoints", 2048),
