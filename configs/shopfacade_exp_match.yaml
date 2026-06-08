@@ -1,0 +1,47 @@
+name: shopfacade_exp_match
+description: "ShopFacade — NetVLAD + ALIKED + LightGlue"
+
+retrieval:
+  method: NetVLADRetrieval
+  top_k: 10
+  params:
+    pca_dim: 4096
+    device: cuda
+
+detector:
+  method: ALIKEDDetector
+  params:
+    max_keypoints: 5000
+    device: cuda
+
+matcher:
+  method: LightGlueMatcher
+  params:
+    features: aliked
+    depth_confidence: 0.95
+    width_confidence: 0.99
+    filter_threshold: 0.1
+    device: cuda
+
+dataset:
+  name: cambridge
+  scene: ShopFacade
+  root: data/cambridge/ShopFacade
+  nvm_model: reconstruction.nvm
+  query_list: dataset_test.txt
+  db_list: dataset_train.txt
+  fx: 1670
+  fy: 1670
+  cx: 960
+  cy: 540
+
+pose_solver:
+  method: pnp_ransac
+  ransac_thresh: 12.0
+  min_inliers: 12
+  confidence: 0.9999
+
+output:
+  results_dir: outputs/results/shopfacade_exp_match
+  save_retrieved: true
+  timing: true

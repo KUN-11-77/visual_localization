@@ -120,8 +120,17 @@ class NVMModel:
                 np.zeros(len(kpts), dtype=bool),
             )
 
-        nvm_xy = nvm_kps[:, :2]  # (M, 2)
+        nvm_xy = nvm_kps[:, :2].copy()  # (M, 2)
         nvm_pids = nvm_kps[:, 2].astype(np.int64)  # (M,)
+
+        # NVM stores keypoints relative to image center (VisualSFM convention).
+        # Convert to approximate absolute coordinates using typical Cambridge intrinsics
+        # (cx=960, cy=540 at 1920x1080 original resolution).
+        # For spatial lookup, we use a generous radius so the exact resolution is less
+        # critical; we just need to bring relative coords into the same ballpark as the
+        # detected (absolute) keypoints.
+        nvm_xy[:, 0] += 960.0
+        nvm_xy[:, 1] += 540.0
 
         points3D = np.zeros((len(kpts), 3), dtype=np.float64)
         valid = np.zeros(len(kpts), dtype=bool)

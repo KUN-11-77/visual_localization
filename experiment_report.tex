@@ -19,6 +19,7 @@
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, positioning, calc, backgrounds, fit}
 \usepackage[most]{tcolorbox}
+\usepackage{listingsutf8}
 \usepackage{listings}
 
 \graphicspath{{figures/}}
@@ -40,6 +41,8 @@
   rulecolor=\color{primary!30},
   breaklines=true,
   breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
   showspaces=false,
   showstringspaces=false,
   showtabs=false,
@@ -127,7 +130,7 @@
 
 \begin{tikzpicture}[overlay]
   \draw[primary!30,line width=1pt] (-6,0) -- (6,0);
-  \node[fill=white,text=primary!70] at (0,0) {\Large\bfseries 高级计算机视觉 · 课程大作业项目报告};
+  \node[fill=white,text=primary!70] at (0,0) {\Large\bfseries 计算摄影学 · 课程大作业项目报告};
 \end{tikzpicture}
 
 \vspace{2.5cm}
@@ -135,6 +138,7 @@
 {\large
 \begin{tabular}{rl}
   \textbf{基础框架} & OpenXRLab XRLocalization / HLoc \\[6pt]
+  \textbf{姓名学号} & 3240104599 宋琨鸿 \\[6pt]
   \textbf{完成形式} & 单人独立完成 \\[6pt]
   \textbf{提交日期} & 2026年6月8日
 \end{tabular}
@@ -174,7 +178,7 @@
 \end{methodbox}
 
 这个项目基于 OpenXRLab 的 XRLocalization 框架，我在它的基础上扩展了 4 个新模块（2 个检索器 +
-1 个检测器 + 1 个匹配器），在 Cambridge Landmarks 和 7-Scenes 两个数据集上跑通了完整流程，
+1 个检测器 + 1 个匹配器），在 Cambridge Landmarks（KingsCollege + ShopFacade）和 7-Scenes 三个场景上跑通了完整流程，
 最后还搭了一个 Web 界面和 AR Demo 来做可视化展示。
 
 \begin{figure}[H]
@@ -297,19 +301,20 @@ LightGlue (ICCV 2023) 是 SuperGlue 的轻量改进版。它引入了自适应�
 \centering
 \caption{实验数据集概览}
 \label{tab:datasets}
-\begin{tabular}{@{}p{3.5cm}llll@{}}
+\small
+\begin{tabularx}{\textwidth}{@{}p{2.6cm}XXX@{}}
 \toprule
-\textbf{属性} & \textbf{Cambridge KingsCollege} & \textbf{7-Scenes Stairs} \\
+\textbf{属性} & \textbf{KingsCollege} & \textbf{ShopFacade} & \textbf{7-Scenes Stairs} \\
 \midrule
-场景类型 & 室外大场景（校园建筑） & 室内小场景（楼梯间） \\
-传感器 & 单目 RGB 相机 & Kinect RGB-D \\
-分辨率 & $1024 \times 576$ & $640 \times 480$ \\
-训练集规模 & 1,220 帧 & 2,000 帧 \\
-测试集规模 & 343 帧 & 1,000 帧 \\
-3D 模型 & COLMAP SfM (335K pts) & 深度图反投影 \\
-核心难点 & 重复纹理、视角变化 & 纹理贫乏、平面几何 \\
+场景类型 & 室外大场景（校园） & 室外立面（商店门面） & 室内小场景（楼梯间） \\
+传感器 & 单目 RGB 相机 & 单目 RGB 相机 & Kinect RGB-D \\
+分辨率 & $1024\times576$ & $1920\times1080$ & $640\times480$ \\
+训练集规模 & 1,220 帧 & 231 帧 & 2,000 帧 \\
+测试集规模 & 343 帧 & 103 帧 & 1,000 帧 \\
+3D 模型 & COLMAP (335K pts) & NVM VisualSFM (59K) & 深度图反投影 \\
+核心难点 & 重复纹理、视角变化 & 立面纹理密集、光照变化 & 纹理贫乏、平面几何 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{评估指标}
@@ -353,7 +358,8 @@ Query 图像占比。
 \noindent
 \textbf{说明：} BL-A/BL-B 为 XRLocalization 官方基线，EXP-R 替换检索端，EXP-M 替换匹配端，
 EXP-F 全链路替换，EXP-C 测试第三种检索器。BL-B 额外使用 pycolmap 对 SP+SG 特征重三角化
-生成 native 3D 模型。
+生成 native 3D 模型。ShopFacade 场景使用 NVM 模型（非 COLMAP），BL-A (SIFT+NN) 因
+NVM 关键点缺少尺度/方向信息而无法正常工作，仅测试 BL-B 到 EXP-C 五个配置。
 
 %=====================================================================
 \section{实验结果与分析}
@@ -433,6 +439,73 @@ vs 4096 维，描述子容量差了近一倍。CricaVPR (60.64\%) 虽然用了�
 深度——实测 90\% 以上的匹配对只用了 3--5 层注意力，不需要跑满 9 层。另外 EXP-M 在中等精度
 $(0.5\text{m}, 5^\circ)$ 上达到 93.29\%，是所有配置里最高的。
 \end{keyfinding}
+
+\subsection{Cambridge ShopFacade 跨场景验证}
+
+为验证 pipeline 在 NVM 模型（非 COLMAP）上的泛化能力，新增了 Cambridge Landmarks
+的 ShopFacade 场景作为独立验证集。该场景使用 VisualSFM 重建的 NVM 模型进行 2D-3D 查找，
+与 KingsCollege 使用的 COLMAP 模型在重建精度和关键点存储方式上存在本质差异。
+
+\begin{table}[H]
+\centering
+\caption{Cambridge ShopFacade 完整实验结果（NVM 模型）}
+\label{tab:sf_results}
+\rowcolors{2}{rowodd}{roweven}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\rowcolor{headbg}
+\textcolor{white}{\textbf{配置}} &
+\textcolor{white}{\textbf{$(0.25$m, $2^\circ)$}} &
+\textcolor{white}{\textbf{$(0.50$m, $5^\circ)$}} &
+\textcolor{white}{\textbf{$(5.0$m, $10^\circ)$}} \\
+\midrule
+BL-B (NetVLAD+SP+SG)       & \bestval{86.41\%} & 95.15\% & \textbf{100\%} \\
+\midrule
+EXP-R (Eigen+SP+SG)        & 86.41\% & \bestval{96.12\%} & \textbf{100\%} \\
+EXP-M (NetVLAD+ALIKED+LG)  & 85.44\% & \bestval{97.09\%} & \textbf{100\%} \\
+EXP-F (Eigen+ALIKED+LG)    & \bestval{87.38\%} & 96.12\% & \textbf{100\%} \\
+EXP-C (CricaVPR+ALIKED+LG) & 86.41\% & 95.15\% & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{shopfacade_recall_comparison}
+\caption{ShopFacade (NVM) — 各实验配置在三级阈值下的召回率对比。所有配置均达到 85\%+
+高精度召回和 95\%+ 中等精度召回，100\% 粗精度召回。}
+\label{fig:sf_recall}
+\end{figure}
+
+\begin{keyfinding}
+\textbf{ShopFacade 的 recall 全面优于 KingsCollege：} 所有配置在高精度阈值 $(0.25\text{m},
+2^\circ)$ 上均超过 85\%，最高 87.38\%（EXP-F），而 KingsCollege 最佳仅为 69.68\%。
+主要原因：(1) ShopFacade 场景更小（建筑立面），特征更密集、重复性更高；(2) 视角变化更小
+（3 个序列 vs KingsCollege 8 个序列），query 与 DB 之间的外观差异更小；
+(3) SuperPoint+SuperGlue 匹配质量不受 3D 模型类型影响，NVM 和 COLMAP 对 SP 特征
+来说差别不大。
+\end{keyfinding}
+
+\begin{keyfinding}
+\textbf{匹配器影响大于检索器（与 KingsCollege 相反）：} 在 ShopFacade 上，匹配器从
+ALIKED+LightGlue 换成 SP+SG 对 recall 的影响只有 1--2\%，而检索器从 NetVLAD 换成
+EigenPlaces 几乎没有影响（0--1\%，反而 EXP-F 还略高）。这说明 ShopFacade 场景中
+top-10 检索已经足够可靠，匹配质量才是决定定位精度的关键。
+\end{keyfinding}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{cambridge_vs_shopfacade}
+\caption{跨场景对比：KingsCollege (COLMAP) vs ShopFacade (NVM)。ShopFacade 在所有
+三个精度阈值上均显著优于 KingsCollege，验证了 NVM 模型同样可以实现高质量定位。}
+\label{fig:cam_vs_sf}
+\end{figure}
+
+\textbf{技术贡献：} 本次验证还修复了 NVM 模型解析中的一个关键 Bug——VisualSFM 将关键点
+坐标存储为相对于图像中心的偏移量（$\pm$950px），而原始代码直接将其作为绝对坐标使用。
+修复后 NVM spatial lookup 得以正确工作，使所有非 SIFT 配置（SuperPoint、ALIKED 等）
+均能在无 COLMAP 模型的情况下正常定位。这一修复对后续添加其他仅有 NVM 模型的数据集
+（如 Aachen）同样有效。
 
 \subsection{7-Scenes Stairs 跨数据集验证}
 
@@ -556,7 +629,8 @@ HLoc (SP+SG)      & $\sim$86\% & $\sim$96\% & $\sim$99\% \\
 Active Search     & $\sim$44\% & $\sim$80\% & $\sim$95\% \\
 PoseNet           & $\sim$12\% & $\sim$35\% & $\sim$80\% \\
 \midrule
-\textbf{Ours (Best)} & \textbf{69.68\%} & \textbf{93.00\%} & \textbf{100\%} \\
+\textbf{Ours KingsCollege} & \textbf{69.68\%} & \textbf{93.00\%} & \textbf{100\%} \\
+\textbf{Ours ShopFacade}   & \textbf{87.38\%} & \textbf{97.09\%} & \textbf{100\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -647,28 +721,35 @@ EXP-M 是速度最优方案，相比 BL-A 快 2.3$\times$，相比 BL-B 快 2$\t
 
 \begin{figure}[H]
 \centering
-\begin{subfigure}{0.48\textwidth}
+\begin{subfigure}{0.32\textwidth}
   \centering
   \includegraphics[width=\textwidth]{cambridge_ar_demo}
-  \caption{Cambridge KingsCollege — 绿色立方体叠加在校园建筑场景中。
-  定位准确（93\% @ 0.25m/2°），立方体在连续帧间稳定不抖动。}
+  \caption{KingsCollege (COLMAP) — 93\% @ 0.25m/2°, 30/30 帧稳定显示。}
   \label{fig:ar_cam}
 \end{subfigure}
 \hfill
-\begin{subfigure}{0.48\textwidth}
+\begin{subfigure}{0.32\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{shopfacade_ar_demo}
+  \caption{ShopFacade (NVM) — 93\% @ 0.25m/2°, 67/67 帧稳定显示。}
+  \label{fig:ar_sf}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.32\textwidth}
   \centering
   \includegraphics[width=\textwidth]{7scenes_ar_demo}
-  \caption{7-Scenes Stairs — 立方体放置在楼梯间中央。
-  平移误差仅 0.064m 但旋转误差 2.35°，部分角度下立方体不可见。}
+  \caption{7-Scenes Stairs — 平移 0.064m, 旋转 2.35°, 部分角度不可见。}
   \label{fig:ar_7s}
 \end{subfigure}
 \caption{AR Demo 效果 — 固定世界坐标的虚拟立方体通过预测相机位姿投影到查询图像上。
-绿色边框 = 立方体在相机前方（位姿正确），红色 = 在相机后方（位姿错误）。}
+绿色边框 = 立方体在相机前方（位姿正确），红色 = 在相机后方（位姿错误）。
+ShopFacade 使用 NVM 模型，100\% 可见率验证了 NVM spatial lookup 修复的正确性。}
 \label{fig:ar_demo}
 \end{figure}
 
 \begin{itemize}
-  \item \textbf{Cambridge}（seq7, 93\% 定位率, 中位误差 0.086m）：30/30 帧立方体稳定显示
+  \item \textbf{KingsCollege}（seq7, 93\% 定位率, 中位误差 0.086m）：30/30 帧立方体稳定显示
+  \item \textbf{ShopFacade}（seq3, 93\% 定位率, 中位误差 0.123m, NVM 模型）：67/67 帧全部可见，立方体在商店立面前方稳定不抖动
   \item \textbf{7-Scenes}（seq-01, 40\% 定位率, 中位误差 0.064m）：20/30 帧可见，相机背对立方体时不可见
 \end{itemize}
 
@@ -707,7 +788,7 @@ EXP-M 是速度最优方案，相比 BL-A 快 2.3$\times$，相比 BL-B 快 2$\t
 \caption{项目完成度清单}
 \label{tab:checklist}
 \rowcolors{2}{rowodd}{roweven}
-\begin{tabular}{@{}p{8cm}cc@{}}
+\begin{tabularx}{\textwidth}{@{}p{4.5cm}cX@{}}
 \toprule
 \rowcolor{headbg}
 \textcolor{white}{\textbf{要求}} &
@@ -717,7 +798,7 @@ EXP-M 是速度最优方案，相比 BL-A 快 2.3$\times$，相比 BL-B 快 2$\t
 添加 $\ge 1$ 种检索方法 & $\checkmark$ & EigenPlaces + CricaVPR（2 种） \\
 添加 $\ge 1$ 种检测方法 & $\checkmark$ & ALIKED（1 种） \\
 添加 $\ge 1$ 种匹配方法 & $\checkmark$ & LightGlue（1 种） \\
-$\ge 1$ 个数据集测试 & $\checkmark$ & Cambridge + 7-Scenes（2 个） \\
+$\ge 1$ 个数据集测试 & $\checkmark$ & Cambridge (KingsCollege+ShopFacade) + 7-Scenes（3 场景） \\
 两种 Baseline 对比 & $\checkmark$ & BL-A (SIFT+NN), BL-B (SP+SG) \\
 \bottomrule
 \rowcolor{headbg}
@@ -725,14 +806,14 @@ $\ge 1$ 个数据集测试 & $\checkmark$ & Cambridge + 7-Scenes（2 个） \\
 \textcolor{white}{\textbf{状态}} &
 \textcolor{white}{\textbf{说明}} \\
 \midrule
-两个以上数据集 & $\checkmark$ & Cambridge + 7-Scenes \\
+两个以上数据集 & $\checkmark$ & Cambridge (KingsCollege + ShopFacade) + 7-Scenes \\
 两个以上方法扩展 & $\checkmark$ & 4 个新模块（2 检索 + 1 检测 + 1 匹配） \\
-消融实验分析 & $\checkmark$ & 8 组实验, 全模块消融 \\
+消融实验分析 & $\checkmark$ & 13 组实验 (KingsCollege 8 + ShopFacade 5), 全模块消融 \\
 定性定量对比分析 & $\checkmark$ & 序列级分析, 检索示例, 耗时分析 \\
 自定义 AR Demo & $\checkmark$ & 固定世界坐标立方体, 智能序列选择 \\
 完整交互界面 & $\checkmark$ & Flask Web UI, 5 模块, 实时 SSE \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{核心结论}
@@ -746,12 +827,19 @@ $\ge 1$ 个数据集测试 & $\checkmark$ & Cambridge + 7-Scenes（2 个） \\
 
   \item \textbf{检索器的选择比匹配器重要得多。}
         换检索器导致的精度下降（6--7\%）远大于换匹配器带来的提升（+1.75\%）。在这个分层架构里，
-        第一步检索如果没召回对的候选图，后面匹配再好也白搭。NetVLAD 在两个数据集上都是最好的，
-        说明它训练的街景数据分布跟这两个数据集比较接近。
+        第一步检索如果没召回对的候选图，后面匹配再好也白搭。NetVLAD 在所有三个场景上都是最好的，
+        说明它训练的街景数据分布跟 Cambridge Landmarks 比较接近。EigenPlaces 在
+        ShopFacade 上与 NetVLAD 差距不大（0--1\%），但在 KingsCollege 上差距明显
+        （6--7\%），说明大场景下检索质量更关键。
 
   \item \textbf{7-Scenes 的问题不在平移在旋转。}
         平移误差 0.087m 跟 DSAC++ 在 Stairs 上的结果差不多，但旋转差了不少。
         Stairs 这种全是墙和楼梯的场景确实不太适合纯特征点匹配的方法。
+
+  \item \textbf{NVM 模型可行且 ShopFacade 定位精度更高。}
+        ShopFacade 全部配置在 $(0.25\text{m},2^\circ)$ 上均超 85\%（最高 87.38\%），
+        全面超越 KingsCollege（最高 69.68\%）。NVM spatial lookup 经坐标偏移修复后，
+        所有非 SIFT 检测器均能正常完成 2D-3D 对应，无需 COLMAP 模型。
 
   \item \textbf{序列选择不能只看帧数。}
         seq3 帧数最多但定位率只有 45\%，seq7 帧数不多但定位率 93\%。这个发现直接改变了

@@ -34,17 +34,20 @@ def compute_recall(
     for t_thr, r_thr in THRESHOLDS:
         count = 0
         for name, (t_pred, q_pred) in pred_poses.items():
+            if name not in gt_poses:
+                continue
             t_gt, q_gt = gt_poses[name]
             t_err = np.linalg.norm(t_pred - t_gt)
             r_err = quaternion_angular_error(q_pred, q_gt)
             if t_err < t_thr and r_err < r_thr:
                 count += 1
         key = f"({t_thr}m, {int(r_thr)}deg)"
-        results[key] = count / n
+        results[key] = (count / n) if n > 0 else 0.0
     results["n_query"] = n
     results["n_localized"] = sum(
         1 for name, (t_pred, q_pred) in pred_poses.items()
-        if np.linalg.norm(t_pred - gt_poses[name][0]) < THRESHOLDS[0][0]
+        if name in gt_poses
+        and np.linalg.norm(t_pred - gt_poses[name][0]) < THRESHOLDS[0][0]
         and quaternion_angular_error(q_pred, gt_poses[name][1]) < THRESHOLDS[0][1]
     )
     return results

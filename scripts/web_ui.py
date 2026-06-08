@@ -193,7 +193,6 @@ select:focus, input:focus { outline:none; border-color:var(--accent); }
   <button class="tab-btn" data-tab="run">🚀 运行实验</button>
   <button class="tab-btn" data-tab="results">📋 结果查看</button>
   <button class="tab-btn" data-tab="ardemo">🧊 AR 演示</button>
-  <button class="tab-btn" data-tab="export">📦 导出</button>
 </div>
 
 <!-- ==================== 总览面板 ==================== -->
@@ -224,25 +223,48 @@ select:focus, input:focus { outline:none; border-color:var(--accent); }
 <div id="tab-run" class="tab-panel">
   <div class="card">
     <h2>运行定位实验</h2>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:14px;">
+      输入数据集路径，选择方法配置，点击运行即可。结果自动保存到指定输出目录。</p>
+
+    <!-- 数据集路径（必填） -->
     <div class="form-row">
-      <div class="form-group">
-        <label>选择配置文件</label>
-        <select id="run-config"></select>
+      <div class="form-group" style="flex:2;">
+        <label>📁 数据集根目录 <span style="color:var(--accent)">*必填</span></label>
+        <input type="text" id="run-root" placeholder="例: D:/datasets/Cambridge/KingsCollege 或 data/cambridge/KingsCollege">
       </div>
-      <div class="form-group">
-        <label>查询数量限制 (0=全部)</label>
-        <input type="number" id="run-limit" value="5" min="0" max="10000">
+      <div class="form-group" style="flex:1;">
+        <label>📍 场景名称 <span style="color:var(--accent)">*必填</span></label>
+        <input type="text" id="run-scene" placeholder="例: KingsCollege">
       </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>构建 SP+SG SfM 模型</label>
-        <select id="run-build-sfm">
-          <option value="0">否 (使用已有模型)</option>
-          <option value="1">是 (重新构建 SfM)</option>
+      <div class="form-group" style="flex:1;">
+        <label>🗂 数据集类型 <span style="color:var(--accent)">*必填</span></label>
+        <select id="run-dsname">
+          <option value="cambridge">Cambridge (COLMAP/NVM)</option>
+          <option value="7scenes">7-Scenes (RGB-D)</option>
         </select>
       </div>
     </div>
+
+    <!-- 方法配置 -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>🔧 方法配置</label>
+        <select id="run-config"></select>
+      </div>
+      <div class="form-group">
+        <label>🔍 查询数量 (0=全部)</label>
+        <input type="number" id="run-limit" value="5" min="0" max="10000">
+      </div>
+    </div>
+
+    <!-- 输出路径 -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>📤 输出目录（留空自动生成）</label>
+        <input type="text" id="run-output" placeholder="例: outputs/results/my_experiment">
+      </div>
+    </div>
+
     <div style="display:flex;gap:10px;margin-top:6px;">
       <button class="btn btn-primary" id="btn-run" onclick="runExperiment()">▶ 开始运行</button>
       <button class="btn btn-outline" id="btn-run-stop" onclick="stopRun()" style="display:none">⏹ 停止</button>
@@ -285,75 +307,28 @@ select:focus, input:focus { outline:none; border-color:var(--accent); }
         <input type="text" id="ar-cube-size" placeholder="自动检测">
       </div>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>透明度 (0-1)</label>
-        <input type="number" id="ar-alpha" value="0.55" step="0.05" min="0" max="1">
-      </div>
-      <div class="form-group">
-        <label>视频帧率 (0=不生成视频)</label>
-        <input type="number" id="ar-fps" value="5" min="0" max="30">
-      </div>
-    </div>
     <div style="display:flex;gap:10px;margin-top:6px;">
       <button class="btn btn-green" onclick="generateARDemo()">🎬 生成 AR 演示</button>
-      <button class="btn btn-outline" onclick="loadARDemos()">🔄 刷新画廊</button>
     </div>
     <div id="ar-progress" style="display:none;margin-top:14px;">
       <div class="log-output" id="ar-log"></div>
     </div>
   </div>
 
-  <!-- 演示视频 -->
-  <div id="ar-video-section"></div>
-
-  <!-- AR 图片画廊 -->
+  <!-- AR 图片画廊 — 按场景筛选 -->
   <div class="card">
     <h2>AR 演示画廊</h2>
-    <div class="filter-bar">
-      <select id="ar-gallery-exp" onchange="loadARDemos()" style="max-width:280px;"></select>
+    <div class="filter-bar" style="display:flex;gap:10px;margin-bottom:14px;">
+      <select id="ar-scene-filter" onchange="loadARDemos()" style="max-width:200px;">
+        <option value="">全部场景</option>
+        <option value="cambridge">🏛 Cambridge</option>
+        <option value="7scenes">🏠 7-Scenes</option>
+      </select>
+      <select id="ar-gallery-exp" onchange="loadARDemos()" style="max-width:240px;"></select>
     </div>
     <div class="media-grid" id="ar-gallery"></div>
   </div>
 </div>
-
-<!-- ==================== 导出 ==================== -->
-<div id="tab-export" class="tab-panel">
-  <div class="card">
-    <h2>导出实验结果</h2>
-    <p style="color:var(--text2);font-size:12px;margin-bottom:12px;">将实验数据、报告和 AR 演示保存到指定位置。</p>
-    <div class="form-row">
-      <div class="form-group">
-        <label>实验名称</label>
-        <select id="export-experiment"></select>
-      </div>
-      <div class="form-group">
-        <label>导出目录</label>
-        <input type="text" id="export-dir" placeholder="例如：D:/reports/">
-      </div>
-    </div>
-    <button class="btn btn-primary" onclick="exportResults()">📤 导出当前实验</button>
-    <button class="btn btn-outline" style="margin-left:8px;" onclick="exportAll()">📤 导出全部实验</button>
-    <div id="export-status" style="margin-top:10px;font-size:12px;"></div>
-  </div>
-  <div class="card">
-    <h2>打包最终提交文件</h2>
-    <p style="color:var(--text2);font-size:12px;margin-bottom:12px;">生成包含全部源代码、实验结果和报告的提交压缩包。</p>
-    <div class="form-row">
-      <div class="form-group">
-        <label>包名称</label>
-        <input type="text" id="pkg-name" value="final-visual_localization-学号-姓名">
-      </div>
-      <div class="form-group">
-        <label>输出目录</label>
-        <input type="text" id="pkg-dir" placeholder="例如：D:/">
-      </div>
-    </div>
-    <button class="btn btn-gold" onclick="generatePackage()">📦 生成提交包</button>
-    <div id="pkg-status" style="margin-top:10px;font-size:12px;"></div>
-  </div>
-</div>
-
 </div><!-- .container -->
 
 <!-- 视频模态框 -->
@@ -379,7 +354,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       case 'dashboard': loadDashboard(); break;
       case 'results': loadResultList(); break;
       case 'ardemo': loadARDemoExperiments(); loadARDemos(); break;
-      case 'export': loadExportExperiments(); break;
       case 'run': loadConfigs(); break;
     }
   });
@@ -472,7 +446,12 @@ async function loadConfigs() {
 async function runExperiment() {
   const config = document.getElementById('run-config').value;
   const limit = document.getElementById('run-limit').value;
-  const buildSfm = document.getElementById('run-build-sfm').value;
+  const rootPath = document.getElementById('run-root').value.trim();
+  const sceneName = document.getElementById('run-scene').value.trim();
+  const outputDir = document.getElementById('run-output').value.trim();
+  const dsName = document.getElementById('run-dsname').value;
+
+  if (!rootPath || !sceneName) { toast('请填写数据集路径和场景名称', 'error'); return; }
 
   runAbort = false;
   document.getElementById('btn-run').disabled = true;
@@ -486,7 +465,13 @@ async function runExperiment() {
     const res = await fetch('/api/run', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({config, limit:parseInt(limit), build_sfm: buildSfm==='1'})
+      body: JSON.stringify({
+        config, limit:parseInt(limit),
+        root_override: rootPath,
+        scene_override: sceneName,
+        dsname_override: dsName,
+        output_dir: outputDir || null,
+      })
     });
 
     const reader = res.body.getReader();
@@ -638,67 +623,61 @@ async function loadARDemoExperiments() {
 
 async function loadARDemos() {
   const exp = document.getElementById('ar-gallery-exp').value;
+  const scene = document.getElementById('ar-scene-filter').value;
   const data = await api('/api/ardemo/list' + (exp ? '?experiment=' + encodeURIComponent(exp) : ''));
   const gallery = document.getElementById('ar-gallery');
 
-  // 填充筛选下拉框
+  // 填充实验下拉框
   if (data.experiments) {
     const sel = document.getElementById('ar-gallery-exp');
     sel.innerHTML = '<option value="">全部实验</option>' +
       data.experiments.map(e => `<option value="${e}" ${e===exp?'selected':''}>${e}</option>`).join('');
   }
 
-  // 渲染视频区域
-  let videoSectionHtml = '';
-  if (data.videos && data.videos.length > 0) {
-    videoSectionHtml = '<div class="video-section card"><h2>🎬 AR 演示视频</h2><div class="media-grid">';
-    data.videos.forEach(v => {
-      videoSectionHtml += `
-        <div class="media-card" style="cursor:pointer" onclick="playVideo('${v.path}')">
-          <div style="position:relative;background:#000;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;">
-            <div style="font-size:48px;">🎬</div>
-            <span class="tag tag-video">视频</span>
-          </div>
-          <div class="caption">
-            <strong>${v.experiment}</strong> — ${v.name}<br>
-            <span style="color:var(--accent);font-size:10px;">点击播放</span>
-          </div>
-        </div>`;
-    });
-    videoSectionHtml += '</div></div>';
-  }
-  document.getElementById('ar-video-section').innerHTML = videoSectionHtml;
-
-  // 渲染图片画廊
+  // 渲染图片画廊 — 按场景过滤，每实验只取首帧
   if (data.images && data.images.length > 0) {
-    gallery.innerHTML = data.images.map(img => `
-      <div class="media-card">
-        <div style="position:relative;">
-          <a href="/api/ardemo/image?path=${encodeURIComponent(img.path)}" target="_blank">
-            <img src="/api/ardemo/image?path=${encodeURIComponent(img.path)}" alt="${img.name}" loading="lazy" style="aspect-ratio:16/9;object-fit:cover;">
-          </a>
-          <span class="tag tag-img">图片</span>
-        </div>
-        <div class="caption">${img.name}</div>
-      </div>`).join('');
+    const isCambridge = (e) => ['baseline_a','baseline_b','exp_','shopfacade'].some(p => e.startsWith(p));
+    const is7Scenes = (e) => e.startsWith('7s');
+
+    let filtered = data.images;
+    if (scene === 'cambridge') filtered = filtered.filter(img => isCambridge(img.experiment));
+    if (scene === '7scenes')   filtered = filtered.filter(img => is7Scenes(img.experiment));
+
+    // 每实验只取第一帧
+    const seen = {};
+    const firstFrames = [];
+    for (const img of filtered) {
+      if (!seen[img.experiment]) {
+        seen[img.experiment] = true;
+        firstFrames.push(img);
+      }
+    }
+
+    if (firstFrames.length > 0) {
+      gallery.innerHTML = firstFrames.map(img => `
+        <div class="media-card">
+          <div style="position:relative;">
+            <a href="/api/ardemo/image?path=${encodeURIComponent(img.path)}" target="_blank">
+              <img src="/api/ardemo/image?path=${encodeURIComponent(img.path)}" alt="${img.experiment}"
+                   loading="lazy" style="aspect-ratio:16/9;object-fit:cover;width:100%;">
+            </a>
+            <span class="tag tag-img" style="position:absolute;top:8px;right:8px;background:var(--accent2);color:#fff;padding:3px 8px;border-radius:4px;font-size:10px;">AR</span>
+          </div>
+          <div class="caption" style="padding:10px 12px;">
+            <strong>${img.experiment}</strong><br>
+            <span style="color:var(--text2);font-size:11px;">🖱 点击查看大图</span>
+          </div>
+        </div>`).join('');
+    } else {
+      gallery.innerHTML = '<p style="color:var(--text2);text-align:center;padding:20px;grid-column:1/-1">该场景暂无 AR 演示图片。</p>';
+    }
   } else {
-    gallery.innerHTML = '<p style="color:var(--text2);padding:20px;">暂无 AR 演示图片，请先生成！</p>';
+    gallery.innerHTML = '<p style="color:var(--text2);text-align:center;padding:20px;">暂无 AR 演示图片，请先生成！</p>';
   }
-}
 
-function playVideo(path) {
-  const videoUrl = '/api/ardemo/video?path=' + encodeURIComponent(path);
-  const modal = document.getElementById('video-modal');
-  const video = document.getElementById('modal-video');
-  video.src = videoUrl;
-  modal.classList.add('show');
-  video.play().catch(() => {});
-}
-
-function closeVideoModal(event) {
-  if (event.target === event.currentTarget) {
-    document.getElementById('video-modal').classList.remove('show');
-  }
+  // 隐藏旧视频区域
+  const vs = document.getElementById('ar-video-section');
+  if (vs) vs.innerHTML = '';
 }
 
 async function generateARDemo() {
@@ -744,65 +723,12 @@ async function generateARDemo() {
   document.getElementById('ar-progress').style.display = 'none';
 }
 
-// ======================= 导出 =======================
-async function loadExportExperiments() {
-  const data = await api('/api/results/list');
-  if (data.error) return;
-  document.getElementById('export-experiment').innerHTML =
-    data.results.map(r => `<option value="${r.path}">${r.name}</option>`).join('');
-}
-
-async function exportResults() {
-  const experiment = document.getElementById('export-experiment').value;
-  const dir = document.getElementById('export-dir').value;
-  if (!dir) { toast('请指定导出目录', 'error'); return; }
-  const st = document.getElementById('export-status');
-  st.innerHTML = '<span class="spinner"></span> 正在导出...';
-  const data = await api('/api/export', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({experiment, output_dir:dir})
-  });
-  if (data.error) { st.innerHTML = `<span style="color:var(--accent)">错误：${data.error}</span>`; }
-  else { st.innerHTML = `<span style="color:var(--accent2)">✅ 已导出到 ${dir}</span>`; toast('导出完成！', 'success'); }
-}
-
-async function exportAll() {
-  const dir = document.getElementById('export-dir').value;
-  if (!dir) { toast('请指定导出目录', 'error'); return; }
-  const st = document.getElementById('export-status');
-  st.innerHTML = '<span class="spinner"></span> 正在导出全部实验...';
-  const data = await api('/api/export/all', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({output_dir:dir})
-  });
-  if (data.error) { st.innerHTML = `<span style="color:var(--accent)">错误：${data.error}</span>`; }
-  else { st.innerHTML = `<span style="color:var(--accent2)">✅ 全部实验已导出到 ${dir}</span>`; toast('全部导出完成！', 'success'); }
-}
-
-async function generatePackage() {
-  const name = document.getElementById('pkg-name').value;
-  const dir = document.getElementById('pkg-dir').value;
-  if (!name || !dir) { toast('请填写所有字段', 'error'); return; }
-  const st = document.getElementById('pkg-status');
-  st.innerHTML = '<span class="spinner"></span> 正在生成打包文件...';
-  const data = await api('/api/package', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({name, output_dir:dir})
-  });
-  if (data.error) { st.innerHTML = `<span style="color:var(--accent)">错误：${data.error}</span>`; }
-  else { st.innerHTML = `<span style="color:var(--accent2)">✅ 打包完成：${data.path} (${data.size_mb} MB)</span>`; toast('打包完成！', 'success'); }
-}
-
 // ======================= 初始化 =======================
 loadDashboard();
 loadConfigs();
 loadResultList();
 loadARDemoExperiments();
 loadARDemos();
-loadExportExperiments();
 </script>
 </body>
 </html>'''
@@ -932,7 +858,10 @@ def create_app():
         data = request.get_json()
         config = data.get("config", "")
         limit = data.get("limit", 5)
-        build_sfm = data.get("build_sfm", False)
+        root_override = data.get("root_override", "")
+        scene_override = data.get("scene_override", "")
+        dsname_override = data.get("dsname_override", "")
+        output_dir = data.get("output_dir", "")
 
         def generate():
             cmd = [
@@ -940,8 +869,19 @@ def create_app():
                 "--config", config,
                 "--limit_queries", str(limit),
             ]
-            if build_sfm:
-                cmd.append("--build_sfm")
+            # Dataset path / scene overrides
+            overrides = []
+            if root_override:
+                overrides.append(f"dataset.root={root_override}")
+            if scene_override:
+                overrides.append(f"dataset.scene={scene_override}")
+            if dsname_override:
+                overrides.append(f"dataset.name={dsname_override}")
+            if overrides:
+                cmd.extend(["--overrides"] + overrides)
+            # Custom output dir
+            if output_dir:
+                cmd.extend(["--output_dir", output_dir])
 
             env = os.environ.copy()
             env["PYTHONPATH"] = "."
@@ -996,6 +936,13 @@ def create_app():
         for sd in search_dirs:
             if not sd.exists():
                 continue
+            # 收集视频文件
+            for vid_file in sorted(sd.glob("*.mp4")):
+                videos.append({
+                    "name": vid_file.name,
+                    "path": str(vid_file.relative_to(PROJECT_ROOT)),
+                    "experiment": sd.name,
+                })
             # 收集图片文件
             for img_file in sorted(sd.glob("*_ar.jpg")):
                 images.append({
@@ -1099,118 +1046,6 @@ def create_app():
 
         return Response(generate_ar(), mimetype="text/event-stream")
 
-    # ---- 导出单个实验 ----
-    @app.route('/api/export', methods=['POST'])
-    def api_export():
-        data = request.get_json()
-        experiment = data.get("experiment", "")
-        output_dir = data.get("output_dir", "")
-        if not experiment or not output_dir:
-            return jsonify({"error": "缺少参数"})
-
-        src = PROJECT_ROOT / experiment
-        dst = Path(output_dir) / experiment
-        dst.mkdir(parents=True, exist_ok=True)
-
-        import shutil
-        for fname in ["results.csv", "per_frame.csv", "timing.json", "pred_poses.json"]:
-            s = src / fname
-            if s.exists():
-                shutil.copy2(s, dst / fname)
-
-        config_name = _resolve_config(experiment)
-        config_path = CONFIG_DIR / config_name
-        if config_path.exists():
-            try:
-                cmd = [
-                    sys.executable, "scripts/generate_report.py",
-                    "--results_dir", str(src.relative_to(PROJECT_ROOT)),
-                    "--config", str(config_path.relative_to(PROJECT_ROOT)),
-                    "--output", str((dst / f"{experiment}_report.html").relative_to(PROJECT_ROOT)),
-                ]
-                subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True)
-            except Exception:
-                pass
-
-        return jsonify({"status": "ok", "output": str(dst)})
-
-    # ---- 导出所有实验 ----
-    @app.route('/api/export/all', methods=['POST'])
-    def api_export_all():
-        data = request.get_json()
-        output_dir = data.get("output_dir", "")
-        if not output_dir:
-            return jsonify({"error": "缺少输出目录"})
-
-        import shutil
-        dst = Path(output_dir)
-        dst.mkdir(parents=True, exist_ok=True)
-
-        if RESULTS_DIR.exists():
-            for d in sorted(RESULTS_DIR.iterdir()):
-                if not d.is_dir():
-                    continue
-                for fname in ["results.csv", "per_frame.csv", "timing.json", "pred_poses.json"]:
-                    s = d / fname
-                    if s.exists():
-                        dest_dir = dst / "results" / d.name
-                        dest_dir.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(s, dest_dir / fname)
-
-        if AR_DEMO_DIR.exists():
-            for d in sorted(AR_DEMO_DIR.iterdir()):
-                if d.is_dir():
-                    dest_dir = dst / "ar_demo" / d.name
-                    dest_dir.mkdir(parents=True, exist_ok=True)
-                    for f in d.iterdir():
-                        if f.is_file():
-                            shutil.copy2(f, dest_dir / f.name)
-
-        return jsonify({"status": "ok", "output": str(dst)})
-
-    # ---- 打包提交文件 ----
-    @app.route('/api/package', methods=['POST'])
-    def api_package():
-        data = request.get_json()
-        name = data.get("name", "final-visual_localization")
-        output_dir = data.get("output_dir", "")
-        if not output_dir:
-            return jsonify({"error": "缺少输出目录"})
-
-        import shutil
-        import zipfile
-
-        dst = Path(output_dir)
-        dst.mkdir(parents=True, exist_ok=True)
-        zip_path = dst / f"{name}.zip"
-
-        skip_dirs = {"__pycache__", ".git", "node_modules", ".claude",
-                     "outputs", "data", "weights", "models"}
-
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(PROJECT_ROOT):
-                dirs[:] = [d for d in dirs if d not in skip_dirs]
-                for file in files:
-                    if file.endswith(('.pyc', '.pth', '.zip', '.tar.gz', '.7z', '.mat')):
-                        continue
-                    full_path = Path(root) / file
-                    arc_name = full_path.relative_to(PROJECT_ROOT)
-                    zf.write(full_path, f"{name}/{arc_name}")
-
-            # 添加结果和报告
-            for subdir in ["outputs/results", "outputs/ar_demo", "outputs/reports"]:
-                sp = PROJECT_ROOT / subdir
-                if sp.exists():
-                    for root, dirs, files in os.walk(sp):
-                        for file in files:
-                            full_path = Path(root) / file
-                            arc_name = full_path.relative_to(PROJECT_ROOT)
-                            zf.write(full_path, f"{name}/{arc_name}")
-
-        file_size = zip_path.stat().st_size
-        return jsonify({"status": "ok", "path": str(zip_path),
-                        "size_mb": round(file_size / (1024*1024), 1)})
-
     return app
 
 
@@ -1225,8 +1060,21 @@ def _resolve_config(exp_name):
         "exp_crica": "exp_crica.yaml",
         "7scenes_stairs_baseline": "7scenes_stairs_baseline.yaml",
         "7scenes_stairs_eigenplaces": "7scenes_stairs_eigenplaces.yaml",
+        # ShopFacade experiments
+        "shopfacade_baseline_b": "shopfacade_baseline_b.yaml",
+        "shopfacade_exp_retrieval": "shopfacade_exp_retrieval.yaml",
+        "shopfacade_exp_match": "shopfacade_exp_match.yaml",
+        "shopfacade_exp_full": "shopfacade_exp_full.yaml",
+        "shopfacade_exp_crica": "shopfacade_exp_crica.yaml",
+        "shopfacade_sp_sg": "shopfacade_sp_sg.yaml",
     }
-    return mapping.get(exp_name, f"{exp_name}.yaml")
+    if exp_name in mapping:
+        return mapping[exp_name]
+    # Auto-resolve: try exp_name.yaml, and also try shopfacade_ prefix stripping
+    candidate = f"{exp_name}.yaml"
+    if (CONFIG_DIR / candidate).exists():
+        return candidate
+    return f"{exp_name}.yaml"
 
 
 def yaml_load(path):

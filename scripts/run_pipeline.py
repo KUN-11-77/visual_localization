@@ -31,13 +31,18 @@ def parse_args():
                    help="Override output directory for results")
     p.add_argument("--poses_only", action="store_true",
                    help="Only save pred_poses.json, skip CSV/timing writes")
+    p.add_argument("--max_db_images", type=int, default=0,
+                   help="Limit DB images for quick test (0=all)")
     return p.parse_args()
 
 
 def load_dataset(cfg):
     """Load dataset based on dataset type."""
-    if cfg["dataset"]["name"] == "7scenes":
+    name = cfg["dataset"]["name"]
+    if name == "7scenes":
         return _load_7scenes(cfg)
+    elif name == "aachen":
+        return _load_aachen(cfg)
     else:
         return _load_cambridge(cfg)
 
@@ -106,9 +111,20 @@ def _load_cambridge(cfg):
     if colmap_path is not None:
         print(f"  Loading COLMAP model from: {colmap_path}")
         colmap_model = COLMAPLocalizationModel(str(colmap_path))
-    elif "nvm_model" in dataset_cfg:
-        nvm_path = root / dataset_cfg["nvm_model"]
-        if nvm_path.exists():
+
+    # Load NVM model: config path → auto-detect reconstruction.nvm in root
+    if colmap_model is None:
+        nvm_path = None
+        if "nvm_model" in dataset_cfg:
+            nvm_cand = root / dataset_cfg["nvm_model"]
+            if nvm_cand.exists():
+                nvm_path = nvm_cand
+        if nvm_path is None:
+            auto_nvm = root / "reconstruction.nvm"
+            if auto_nvm.exists():
+                nvm_path = auto_nvm
+        if nvm_path is not None:
+            print(f"  Loading NVM model from: {nvm_path}")
             nvm_model = NVMModel(str(nvm_path))
 
     # Build camera intrinsics
@@ -218,6 +234,161 @@ def _build_camera_matrix(dataset_cfg):
     return K
 
 
+def _load_aachen(cfg):
+    """Load Aachen Day-Night v1.1 dataset (partial-extraction compatible).
+
+    Detects what's on disk and adapts:
+      - DB:   images_upright/sequences/**/*.png  (upright-corrected PNGs)
+      - Query: images_upright/query/{day,night}/**/*.jpg
+      - Intrinsics: queries/{day,night}_time_queries_with_intrinsics.txt
+        (Aachen v1.1 format: `path model w h fx cy distortion`)
+      - COLMAP model (3D-models/aachen_v_1_1/): loaded for K reference only.
+        Its `db/<id>.jpg` paths do NOT match the on-disk upright paths, so
+        the pipeline runs in "no-3D-model" (pseudo-planar) mode. This is
+        fine for demo purposes (end-to-end pipeline + AR demo).
+    """
+    dataset_cfg = cfg["dataset"]
+    root = Path(dataset_cfg["root"])
+    scene = dataset_cfg.get("scene", "aachen")
+
+    # ----- 1. Database images (from images_upright/sequences/) -----
+    db_root = root / "images_upright" / "sequences"
+    db_images = []
+    if db_root.exists():
+        for p in sorted(db_root.rglob("*.png")):
+            db_images.append(str(p.relative_to(root)))
+    print(f"  DB images from {db_root}: {len(db_images)}")
+
+    # ----- 2. Query images (from images_upright/query/{day,night}/) -----
+    query_subset = dataset_cfg.get("query_subset", "day")
+    query_subsets = (["day", "night"] if query_subset == "both"
+                     else [query_subset])
+    query_images = []
+    query_intrinsics = {}  # name -> K (3x3)
+
+    query_root = root / "images_upright" / "query"
+    for sub in query_subsets:
+        sub_dir = query_root / sub
+        if not sub_dir.exists():
+            print(f"  WARNING: query dir not found: {sub_dir}")
+            continue
+        for p in sorted(sub_dir.rglob("*.jpg")):
+            rel = str(p.relative_to(root))
+            query_images.append(rel)
+
+    # Parse intrinsics files (Aachen v1.1 format)
+    def _parse_intrinsics_aachen(path):
+        """Aachen format: `path MODEL w h fx cy distortion` per line."""
+        result = {}
+        if not path.exists():
+            return result
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split()
+                if len(parts) < 6:
+                    continue
+                name = parts[0]
+                # model = parts[1]; w, h = parts[2], parts[3]
+                fx = float(parts[4])
+                cx = float(parts[5])
+                # parts[6] = distortion (SIMPLE_RADIAL has 1 dist param)
+                cy = float(parts[3]) / 2.0  # mid-height
+                result[name] = np.array([[fx, 0, cx], [0, fx, cy], [0, 0, 1]],
+                                        dtype=np.float64)
+        return result
+
+    for sub in query_subsets:
+        intr_path = root / "queries" / f"{sub}_time_queries_with_intrinsics.txt"
+        query_intrinsics.update(_parse_intrinsics_aachen(intr_path))
+    print(f"  Query images: {len(query_images)}, intrinsics: {len(query_intrinsics)}")
+
+    # ----- 3. GT poses (HLoc csv: name,qw,qx,qy,qz,tx,ty,tz) -----
+    gt_poses = {}
+    gt_csv = dataset_cfg.get("gt_csv", None)
+    if gt_csv is None:
+        cand_csv = root / "gt" / "Aachen_v1_1_hloc.csv"
+        if cand_csv.exists():
+            gt_csv = str(cand_csv)
+    if gt_csv and Path(gt_csv).exists():
+        import csv as _csv
+        with open(gt_csv) as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                name = row.get('name') or row.get('image') or list(row.values())[0]
+                gt_poses[name] = (
+                    np.array([float(row['tx']), float(row['ty']), float(row['tz'])]),
+                    np.array([float(row['qw']), float(row['qx']),
+                              float(row['qy']), float(row['qz'])])
+                )
+        print(f"  GT poses from {gt_csv}: {len(gt_poses)}")
+    else:
+        print("  No GT csv — pipeline runs but no recall reported.")
+
+    # ----- 4. COLMAP model: load and remap to upright path prefix. -----
+    # The default Aachen v1.1 binary model uses paths like
+    #   'sequences/gopro3_undistorted/gopro3_00146.png'  (gopro3 + nexus4)
+    #   'db/2335.jpg'                                     (original non-upright)
+    # We only have the upright-corrected versions on disk under
+    #   'images_upright/sequences/gopro3_undistorted/gopro3_00146.png'
+    # Strategy: load the model, filter to entries whose 'images_upright/' +
+    # colmap_name exists on disk (2369 / 6697), and remap name_to_image_id
+    # to use the new (upright) path as the canonical key.
+    colmap_model = None
+    for cand in [root / "3D-models" / scene, root / "3D-models" / "aachen_v_1_1"]:
+        if cand.exists() and (cand / "images.bin").exists():
+            print(f"  Loading COLMAP model from: {cand}")
+            colmap_model = COLMAPLocalizationModel(str(cand))
+            break
+    if colmap_model is not None:
+        # Build remap: colmap_name -> upright_name (or drop if not on disk)
+        new_name_to_id = {}
+        dropped = 0
+        for img_id, img in colmap_model.images.items():
+            cname = img['name']
+            if cname.startswith('db/'):
+                dropped += 1
+                continue  # original (non-upright) not on disk
+            upright_name = f"images_upright/{cname}"
+            if (root / upright_name).exists():
+                new_name_to_id[upright_name] = img_id
+            else:
+                dropped += 1
+        # Also update the image's stored name so all internal lookups match
+        for img in colmap_model.images.values():
+            cn = img['name']
+            if not cn.startswith('db/'):
+                img['name'] = f"images_upright/{cn}"
+        colmap_model.name_to_id = new_name_to_id
+        print(f"  COLMAP: {len(colmap_model.images)} entries, {len(new_name_to_id)} match upright,"
+              f" {dropped} dropped (db/* not in upright)")
+        # db_images = the 2369 upright paths that have COLMAP entries
+        db_images = sorted(new_name_to_id.keys())
+        print(f"  db_images set to {len(db_images)} COLMAP-backed upright images")
+
+    # ----- 5. Camera intrinsics: prefer per-query, else COLMAP cam0, else config -----
+    K = _build_camera_matrix(dataset_cfg)
+    if colmap_model is not None and colmap_model.cameras:
+        cam0 = next(iter(colmap_model.cameras.values()))
+        params = cam0['params']
+        if cam0['model'] == 'SIMPLE_RADIAL':
+            fx = float(params[0]); cx = float(params[1]); fy = fx
+            cy = cam0['height'] / 2.0
+        elif cam0['model'] == 'PINHOLE':
+            fx, fy, cx, cy = map(float, params[:4])
+        else:
+            fx = float(params[0]); cx = cam0['width'] / 2.0
+            fy = fx; cy = cam0['height'] / 2.0
+        K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
+        print(f"  Default K (from COLMAP cam0): fx={fx:.1f} cx={cx:.1f}")
+
+    print(f"  Summary: DB={len(db_images)} Q={len(query_images)} "
+          f"GT={len(gt_poses)} Q-K={len(query_intrinsics)}")
+    return query_images, db_images, gt_poses, root, dataset_cfg, colmap_model, None, K, None
+
+
 @timed("retrieval")
 def run_retrieval(query_desc, db_descs, db_names, top_k):
     sims = db_descs @ query_desc
@@ -231,7 +402,7 @@ def run_matching(query_data, db_data, matcher):
 
 
 @timed("pose_estimation")
-def run_pnp(mkpts2d, mkpts3d, camera_matrix):
+def run_pnp(mkpts2d, mkpts3d, camera_matrix, reproj_thresh=8.0, min_inliers=6):
     import cv2
     if len(mkpts2d) < 4:
         return None, None, 0
@@ -241,11 +412,11 @@ def run_pnp(mkpts2d, mkpts3d, camera_matrix):
             mkpts2d.astype(np.float64),
             camera_matrix,
             None,
-            reprojectionError=12.0,
+            reprojectionError=reproj_thresh,
             confidence=0.9999,
             flags=cv2.SOLVEPNP_ITERATIVE,
         )
-        if inliers is None or len(inliers) < 8:
+        if inliers is None or len(inliers) < min_inliers:
             return None, None, 0
         R, _ = cv2.Rodrigues(R_vec)
         t = t_vec.flatten()
@@ -285,8 +456,28 @@ def _nvm_sift_encode(image, img_name, nvm_model, detector,
             np.zeros(0, dtype=np.int64),
         )
 
-    nvm_xy = nvm_kps[:, :2]
+    nvm_xy = nvm_kps[:, :2].copy()
     nvm_pids = nvm_kps[:, 2].astype(np.int64)
+
+    # NVM (VisualSFM) stores keypoints relative to image center.
+    # Convert to absolute pixel coordinates.
+    # The NVM was reconstructed at the camera's native resolution (1920x1080,
+    # deduced from fx≈1670, cx=960).  Keypoints are stored as (x - cx, y - cy).
+    # Step 1: convert to absolute at original resolution
+    ORIG_CX = 960.0
+    ORIG_CY = 540.0
+    ORIG_W = 1920.0
+    ORIG_H = 1080.0
+    nvm_xy[:, 0] = ORIG_CX + nvm_xy[:, 0]  # abs_x at 1920px
+    nvm_xy[:, 1] = ORIG_CY + nvm_xy[:, 1]  # abs_y at 1080px
+
+    # Step 2: if working at a different resolution, scale coordinates
+    h_curr, w_curr = gray.shape[:2]
+    if nvm_width is not None and nvm_height is not None:
+        sx = nvm_width / ORIG_W
+        sy = nvm_height / ORIG_H
+        nvm_xy[:, 0] *= sx
+        nvm_xy[:, 1] *= sy
 
     cv_kpts = [cv2.KeyPoint(x, y, size=31.0) for x, y in nvm_xy]
     descriptors = detector.detector.compute(gray, cv_kpts)[1]
@@ -382,6 +573,11 @@ def main():
     result = load_dataset(cfg)
     query_images, db_images, gt_poses, root, dataset_cfg, colmap_model, nvm_model, K, db_pose_files = result
 
+    # Optional DB image limit (config: output.max_db_images, CLI: --max_db_images)
+    if args.max_db_images > 0 and len(db_images) > args.max_db_images:
+        print(f"  Limiting DB from {len(db_images)} to {args.max_db_images} images")
+        db_images = db_images[:args.max_db_images]
+
     n_query = len(query_images)
     if args.limit_queries > 0:
         query_images = query_images[:args.limit_queries]
@@ -466,18 +662,33 @@ def main():
         desc = retrieval.encode(image)
 
         if use_colmap_sift:
-            # Resize to COLMAP resolution and detect SIFT normally
-            image_resized = cv2.resize(image,
-                                       (colmap_model.image_width, colmap_model.image_height))
-            kpts, feats, scores = detector.detect(image_resized)
-            db_descs.append(desc)
-            db_features.append({
-                "keypoints": kpts,
-                "descriptors": feats,
-                "scores": scores,
-                "image_size": (colmap_model.image_width, colmap_model.image_height),
-                "name": img_name,
-            })
+            # SIFT+COLMAP: use COLMAP keypoint positions directly for direct 2D-3D
+            if cfg["detector"]["method"] == "SIFTDetector":
+                kpts, feats, p3d_ids = _colmap_sift_encode(
+                    image, img_name, colmap_model, detector
+                )
+                db_descs.append(desc)
+                db_features.append({
+                    "keypoints": kpts,
+                    "descriptors": feats,
+                    "scores": np.ones(len(kpts), dtype=np.float32),
+                    "image_size": (colmap_model.image_width, colmap_model.image_height),
+                    "name": img_name,
+                    "point3D_ids": p3d_ids,
+                })
+            else:
+                # SuperPoint/etc.: detect at COLMAP resolution; rely on spatial fallback
+                image_resized = cv2.resize(image,
+                                           (colmap_model.image_width, colmap_model.image_height))
+                kpts, feats, scores = detector.detect(image_resized)
+                db_descs.append(desc)
+                db_features.append({
+                    "keypoints": kpts,
+                    "descriptors": feats,
+                    "scores": scores,
+                    "image_size": (colmap_model.image_width, colmap_model.image_height),
+                    "name": img_name,
+                })
         elif use_nvm_sift:
             kpts, sift_descs, p3d_ids = _nvm_sift_encode(
                 image, img_name, nvm_model, detector,
@@ -576,6 +787,30 @@ def main():
     if use_colmap_sift and colmap_model is not None:
         colmap_p3d_xyz = {pid: v['xyz'] for pid, v in colmap_model.points3D.items()}
 
+    # Per-query intrinsics (Aachen stores K per-query in *_queries_with_intrinsics.txt)
+    # Aachen v1.1 format: `path MODEL w h fx cy distortion` (6+ cols)
+    query_intrinsics = {}
+    if cfg["dataset"]["name"] == "aachen":
+        for sub in (["day", "night"] if cfg["dataset"].get("query_subset", "day") == "both"
+                    else [cfg["dataset"].get("query_subset", "day")]):
+            intr_path = root / "queries" / f"{sub}_time_queries_with_intrinsics.txt"
+            if intr_path.exists():
+                with open(intr_path) as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if len(parts) < 6:
+                            continue
+                        name = parts[0]
+                        # parts[1]=MODEL, parts[2]=w, parts[3]=h,
+                        # parts[4]=fx, parts[5]=cx (focal is fx=fy for SIMPLE_RADIAL)
+                        fx = float(parts[4])
+                        cx = float(parts[5])
+                        h = float(parts[3])
+                        fy = fx
+                        cy = h / 2.0
+                        query_intrinsics[name] = np.array(
+                            [[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
+
     results_dir = Path(args.output_dir) if args.output_dir else Path(cfg["output"]["results_dir"])
     results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -633,12 +868,14 @@ def main():
             # 2D-3D lookup
             if "point3D_ids" in db_data:
                 # Direct mapping: matched DB keypoint index -> known 3D point ID
-                # (NVM SIFT or triangulated SP+SG model)
+                # (NVM SIFT, COLMAP SIFT, or triangulated SP+SG model)
                 p3d_ids = db_data["point3D_ids"]
                 if sp_p3d_xyz is not None:
                     p3d_xyz = sp_p3d_xyz
                 elif use_nvm_sift and nvm_model is not None:
                     p3d_xyz = nvm_model.point3D_xyz
+                elif use_colmap_sift and colmap_p3d_xyz is not None:
+                    p3d_xyz = colmap_p3d_xyz
                 elif use_7scenes_depth and len(depth_p3d_xyz) > 0:
                     p3d_xyz = depth_p3d_xyz
                 else:
@@ -688,9 +925,33 @@ def main():
         all_mkpts3d = np.array(all_mkpts3d) if all_mkpts3d else np.zeros((0, 3))
 
         if len(all_mkpts2d) >= 4:
-            R, t, n_inliers = run_pnp(all_mkpts2d, all_mkpts3d, K)
+            # Use per-query K if available (Aachen), else default K
+            K_query = query_intrinsics.get(qimg_name, K) if query_intrinsics else K
+            R, t, n_inliers = run_pnp(all_mkpts2d, all_mkpts3d, K_query)
         else:
             R, t, n_inliers = None, None, 0
+
+        # Fallback: if PnP failed but we have a top-1 retrieved DB image
+        # in the COLMAP model, use its pose as a "retrieval-based" estimate.
+        # This is a weak baseline (essentially image-retrieval pose) but
+        # ensures the pipeline emits non-empty predictions for demo/UI.
+        retrieval_fallback = False
+        if (R is None or t is None) and use_colmap_sift and colmap_model is not None:
+            for cand in retrieved:
+                if cand in colmap_model.name_to_id:
+                    img_meta = colmap_model.images[colmap_model.name_to_id[cand]]
+                    if 'qvec' in img_meta and 'tvec' in img_meta:
+                        # qvec (qw,qx,qy,qz) -> rotation matrix (local copy)
+                        qw, qx, qy, qz = img_meta['qvec']
+                        R = np.array([
+                            [1-2*(qy**2+qz**2), 2*(qx*qy-qz*qw), 2*(qx*qz+qy*qw)],
+                            [2*(qx*qy+qz*qw), 1-2*(qx**2+qz**2), 2*(qy*qz-qx*qw)],
+                            [2*(qx*qz-qy*qw), 2*(qy*qz+qx*qw), 1-2*(qx**2+qy**2)]
+                        ], dtype=np.float64)
+                        t = img_meta['tvec']
+                        retrieval_fallback = True
+                        n_inliers = 0
+                        break
 
         # Compute errors if localized
         t_err = None

@@ -1,0 +1,45 @@
+name: shopfacade_exp_retrieval
+description: "ShopFacade — EigenPlaces + SuperPoint + SuperGlue"
+
+retrieval:
+  method: EigenPlacesRetrieval
+  top_k: 10
+  params:
+    backbone: ResNet50
+    device: cuda
+
+detector:
+  method: SuperPointDetector
+  params:
+    max_keypoints: 4096
+    device: cuda
+
+matcher:
+  method: SuperGlueMatcher
+  params:
+    weights: outdoor
+    confidence_threshold: 0.2
+    device: cuda
+
+dataset:
+  name: cambridge
+  scene: ShopFacade
+  root: data/cambridge/ShopFacade
+  nvm_model: reconstruction.nvm
+  query_list: dataset_test.txt
+  db_list: dataset_train.txt
+  fx: 1670
+  fy: 1670
+  cx: 960
+  cy: 540
+
+pose_solver:
+  method: pnp_ransac
+  ransac_thresh: 12.0
+  min_inliers: 12
+  confidence: 0.9999
+
+output:
+  results_dir: outputs/results/shopfacade_exp_retrieval
+  save_retrieved: true
+  timing: true

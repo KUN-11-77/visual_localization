@@ -337,6 +337,152 @@ def generate_cambridge_vs_7scenes(experiments):
     print(f"  Saved: {path}")
 
 
+def generate_shopfacade_recall(experiments):
+    """Generate grouped bar chart for ShopFacade results."""
+    config_order = [
+        "shopfacade_baseline_b", "shopfacade_exp_retrieval",
+        "shopfacade_exp_match", "shopfacade_exp_full", "shopfacade_exp_crica",
+    ]
+    config_labels = [
+        "BL-B\nNetVLAD+SP+SG",
+        "EXP-R\nEigen+SP+SG",
+        "EXP-M\nNetVLAD+ALIKED+LG",
+        "EXP-F\nEigen+ALIKED+LG",
+        "EXP-C\nCricaVPR+ALIKED+LG",
+    ]
+
+    # Also check shopfacade_sp_sg as fallback for baseline_b
+    available = []
+    labels = []
+    for c in config_order:
+        name = c
+        if c == "shopfacade_baseline_b" and c not in experiments:
+            name = "shopfacade_sp_sg"  # fallback to earlier run
+        if name in experiments:
+            available.append(name)
+            labels.append(config_labels[config_order.index(c)])
+
+    if not available:
+        print("  Skipping ShopFacade chart (no data)")
+        return
+
+    thresholds_cols = list(THRESHOLDS)
+    data = {t: [] for t in thresholds_cols}
+    for exp_name in available:
+        row = experiments[exp_name]
+        recall_keys = sorted([k for k in row if k.startswith("(")])
+        for i, t in enumerate(thresholds_cols):
+            val = float(row.get(recall_keys[i], 0)) * 100 if i < len(recall_keys) else 0
+            data[t].append(val)
+
+    x = np.arange(len(labels))
+    width = 0.25
+    n_groups = len(thresholds_cols)
+    offsets = np.linspace(-(n_groups - 1) * width / 2, (n_groups - 1) * width / 2, n_groups)
+
+    fig, ax = plt.subplots(figsize=(12, 5.5))
+    for i, t in enumerate(thresholds_cols):
+        bars = ax.bar(x + offsets[i], data[t], width, label=t,
+                      color=COLORS[i], edgecolor="white", linewidth=0.5)
+        for bar, val in zip(bars, data[t]):
+            if val > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.8,
+                        f"{val:.1f}%", ha="center", va="bottom", fontsize=8,
+                        fontweight="bold", color=COLORS[i])
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=8.5)
+    ax.set_ylabel("Recall (%)", fontweight="bold")
+    ax.set_ylim(0, 105)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.0f%%"))
+    ax.legend(loc="lower right", fontsize=9, framealpha=0.9)
+    ax.set_title("ShopFacade (Cambridge) — Recall Comparison Across Experiments",
+                 fontweight="bold", pad=12)
+    ax.grid(axis="y", alpha=0.3, linestyle="--")
+    ax.set_axisbelow(True)
+
+    fig.tight_layout()
+    path = FIGURES_DIR / "shopfacade_recall_comparison.pdf"
+    fig.savefig(path)
+    fig.savefig(FIGURES_DIR / "shopfacade_recall_comparison.png")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+
+
+def generate_cambridge_vs_shopfacade(experiments):
+    """Cambridge KingsCollege vs ShopFacade cross-scene comparison."""
+    pairs = [
+        ("baseline_b", "shopfacade_baseline_b", "Baseline B\n(NetVLAD+SP+SG)"),
+        ("exp_retrieval", "shopfacade_exp_retrieval", "EXP-R\n(Eigen+SP+SG)"),
+        ("exp_match", "shopfacade_exp_match", "EXP-M\n(NetVLAD+ALIKED+LG)"),
+        ("exp_full", "shopfacade_exp_full", "EXP-F\n(Eigen+ALIKED+LG)"),
+        ("exp_crica", "shopfacade_exp_crica", "EXP-C\n(CricaVPR+ALIKED+LG)"),
+    ]
+
+    # Fallback for baseline_b
+    for i, (cam, sf, label) in enumerate(pairs):
+        if sf not in experiments:
+            pairs[i] = (cam, "shopfacade_sp_sg", label)
+
+    available_pairs = []
+    for cam, sf, label in pairs:
+        if cam in experiments and (sf in experiments or sf == "shopfacade_sp_sg"):
+            available_pairs.append((cam, sf, label))
+
+    if not available_pairs:
+        print("  Skipping Cambridge vs ShopFacade chart")
+        return
+
+    thresholds_cols = list(THRESHOLDS)
+    short_names = ["High (0.25m, 2°)", "Medium (0.5m, 5°)", "Coarse (5m, 10°)"]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+    for t_idx, (ax, t, sn) in enumerate(zip(axes, thresholds_cols, short_names)):
+        cam_vals = []
+        sf_vals = []
+        labels = []
+        for cam, sf, label in available_pairs:
+            labels.append(label)
+            cam_row = experiments[cam]
+            sf_row = experiments[sf]
+            cam_keys = sorted([k for k in cam_row if k.startswith("(")])
+            sf_keys = sorted([k for k in sf_row if k.startswith("(")])
+            cam_vals.append(float(cam_row.get(cam_keys[t_idx], 0)) * 100 if t_idx < len(cam_keys) else 0)
+            sf_vals.append(float(sf_row.get(sf_keys[t_idx], 0)) * 100 if t_idx < len(sf_keys) else 0)
+
+        x = np.arange(len(labels))
+        width = 0.35
+        b1 = ax.bar(x - width / 2, cam_vals, width, label="KingsCollege (COLMAP)",
+                    color=COLORS[0], edgecolor="white")
+        b2 = ax.bar(x + width / 2, sf_vals, width, label="ShopFacade (NVM)",
+                    color=COLORS[3], edgecolor="white")
+
+        for bar, val in zip(b1, cam_vals):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1.2,
+                    f"{val:.1f}", ha="center", fontsize=7, fontweight="bold")
+        for bar, val in zip(b2, sf_vals):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1.2,
+                    f"{val:.1f}", ha="center", fontsize=7, fontweight="bold")
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=7)
+        ax.set_ylabel("Recall (%)", fontweight="bold")
+        ax.set_ylim(0, 108)
+        ax.set_title(sn, fontweight="bold", fontsize=11)
+        ax.legend(loc="lower right", fontsize=8)
+        ax.grid(axis="y", alpha=0.3, linestyle="--")
+        ax.set_axisbelow(True)
+
+    fig.suptitle("Cross-Scene Comparison: KingsCollege (COLMAP) vs ShopFacade (NVM)",
+                 fontweight="bold", fontsize=14, y=1.02)
+    fig.tight_layout()
+    path = FIGURES_DIR / "cambridge_vs_shopfacade.pdf"
+    fig.savefig(path)
+    fig.savefig(FIGURES_DIR / "cambridge_vs_shopfacade.png")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+
+
 def main():
     print("Generating report figures...")
 
@@ -352,6 +498,8 @@ def main():
     generate_7scenes_comparison(experiments)
     generate_timing_chart(experiments)
     generate_cambridge_vs_7scenes(experiments)
+    generate_shopfacade_recall(experiments)
+    generate_cambridge_vs_shopfacade(experiments)
 
     print("Done! Figures saved to", FIGURES_DIR)
 
